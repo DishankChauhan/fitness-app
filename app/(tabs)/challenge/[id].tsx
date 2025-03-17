@@ -55,8 +55,6 @@ export default function ChallengeScreen() {
         return `${challenge.target.toLocaleString()} Steps`;
       case 'activeMinutes':
         return `${challenge.target} Active Minutes`;
-      case 'calories':
-        return `${challenge.target} Calories`;
       default:
         return `${challenge.target}`;
     }

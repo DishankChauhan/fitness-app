@@ -103,32 +103,36 @@ class AchievementService {
     try {
       const user = await getCurrentUser();
       if (!user) return;
-
       const achievements = await this.getUserAchievements(userId);
-      const stats = user.stats || {};
-
+      interface UserStats {
+        firstJoins?: number;
+        challengesCompleted?: number;
+        longestStreak?: number;
+        socialInteractions?: number;
+        goalsExceeded?: number;
+        topPerformer?: boolean;
+        helpfulResponses?: number;
+        popularChallenges?: number;
+      }
+      const stats: UserStats = user.stats || {};
       // Early Bird - First to join challenges
-      if (stats.firstJoins >= 3 && !this.hasAchievement(achievements, 'early_bird')) {
+      if ((stats.firstJoins ?? 0) >= 3 && !this.hasAchievement(achievements, 'early_bird')) {
         await this.awardAchievement(userId, 'early_bird');
       }
-
       // Challenger - Completed 5 challenges
-      if (stats.challengesCompleted >= 5 && !this.hasAchievement(achievements, 'challenger')) {
+      if ((stats.challengesCompleted ?? 0) >= 5 && !this.hasAchievement(achievements, 'challenger')) {
         await this.awardAchievement(userId, 'challenger');
       }
-
       // Consistent - Maintained streak for 7 days
-      if (stats.longestStreak >= 7 && !this.hasAchievement(achievements, 'consistent')) {
+      if ((stats.longestStreak ?? 0) >= 7 && !this.hasAchievement(achievements, 'consistent')) {
         await this.awardAchievement(userId, 'consistent');
       }
-
       // Social - Active in community
-      if (stats.socialInteractions >= 20 && !this.hasAchievement(achievements, 'social')) {
+      if ((stats.socialInteractions ?? 0) >= 20 && !this.hasAchievement(achievements, 'social')) {
         await this.awardAchievement(userId, 'social');
       }
-
       // Overachiever - Exceeded challenge goals
-      if (stats.goalsExceeded >= 10 && !this.hasAchievement(achievements, 'overachiever')) {
+      if ((stats.goalsExceeded ?? 0) >= 10 && !this.hasAchievement(achievements, 'overachiever')) {
         await this.awardAchievement(userId, 'overachiever');
       }
 
@@ -136,14 +140,12 @@ class AchievementService {
       if (stats.topPerformer && !this.hasAchievement(achievements, 'elite')) {
         await this.awardAchievement(userId, 'elite');
       }
-
       // Mentor - Helped others
-      if (stats.helpfulResponses >= 15 && !this.hasAchievement(achievements, 'mentor')) {
+      if ((stats.helpfulResponses ?? 0) >= 15 && !this.hasAchievement(achievements, 'mentor')) {
         await this.awardAchievement(userId, 'mentor');
       }
-
       // Innovator - Created popular challenges
-      if (stats.popularChallenges >= 3 && !this.hasAchievement(achievements, 'innovator')) {
+      if ((stats.popularChallenges ?? 0) >= 3 && !this.hasAchievement(achievements, 'innovator')) {
         await this.awardAchievement(userId, 'innovator');
       }
 

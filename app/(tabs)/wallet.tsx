@@ -9,22 +9,8 @@ import { useAuth } from '@/app/hooks/useAuth';
 import { Button } from '@/components/Button';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { TextInput } from '@/components/ui/TextInput';
-
-interface WalletStats {
-  totalStaked: number;
-  availableBalance: number;
-  pendingRewards: number;
-  totalEarned: number;
-}
-
-interface Transaction {
-  id: string;
-  type: 'stake' | 'reward' | 'withdrawal';
-  amount: number;
-  timestamp: Date;
-  status: 'pending' | 'completed';
-  challengeId?: string;
-}
+import * as walletService from '@/services/walletService';
+import type { WalletStats, Transaction } from '@/services/walletService';
 
 const AnimatedThemedView = Animated.createAnimatedComponent(ThemedView);
 
@@ -50,36 +36,14 @@ export default function WalletScreen() {
 
   const loadWalletData = async () => {
     try {
-      // TODO: Replace with actual API calls
-      const mockWalletStats: WalletStats = {
-        totalStaked: 500,
-        availableBalance: 750,
-        pendingRewards: 250,
-        totalEarned: 1000,
-      };
-
-      const mockTransactions: Transaction[] = [
-        {
-          id: '1',
-          type: 'stake',
-          amount: 100,
-          timestamp: new Date(),
-          status: 'completed',
-          challengeId: 'challenge1',
-        },
-        {
-          id: '2',
-          type: 'reward',
-          amount: 50,
-          timestamp: new Date(),
-          status: 'completed',
-          challengeId: 'challenge1',
-        },
-      ];
-
-      setWalletStats(mockWalletStats);
-      setTransactions(mockTransactions);
+      setLoading(true);
+      const stats = await walletService.getWalletStats();
+      const transactionHistory = await walletService.getTransactions();
+      
+      setWalletStats(stats);
+      setTransactions(transactionHistory);
     } catch (error) {
+      console.error('Failed to load wallet data:', error);
       Alert.alert('Error', 'Failed to load wallet data');
     } finally {
       setLoading(false);
@@ -99,13 +63,13 @@ export default function WalletScreen() {
 
     try {
       setWithdrawing(true);
-      // TODO: Implement actual withdrawal logic
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await walletService.withdrawFunds(parseFloat(withdrawAmount));
       Alert.alert('Success', 'Withdrawal initiated successfully');
       setWithdrawAmount('');
       loadWalletData();
     } catch (error) {
-      Alert.alert('Error', 'Failed to process withdrawal');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to process withdrawal';
+      Alert.alert('Error', errorMessage);
     } finally {
       setWithdrawing(false);
     }

@@ -54,7 +54,7 @@ export default function ChallengeScreen() {
         setError('Challenge not found');
         return;
       }
-      setChallenge(found);
+      setChallenge(found as unknown as Challenge | UserChallenge);
     } catch (err) {
       setError('Failed to load challenge');
       console.error(err);

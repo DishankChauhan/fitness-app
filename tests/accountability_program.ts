@@ -81,3 +81,7 @@ describe("accountability_program", () => {
     expect(finalWinnerBalance - initialWinnerBalance).to.equal(rewardAmount.toNumber());
   });
 }); 
+
+function before(arg0: () => Promise<void>) {
+  throw new Error("Function not implemented.");
+}

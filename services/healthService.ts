@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
 };
 
 export interface HealthData {
+  calories: number;
   steps: number;
   activeMinutes: number;
   heartRate: number;
@@ -22,6 +23,9 @@ export interface HealthData {
 }
 
 class HealthService {
+  cleanup() {
+    throw new Error('Method not implemented.');
+  }
   private static instance: HealthService;
   private initialized: boolean = false;
   private provider: string | null = null;
@@ -47,7 +51,9 @@ class HealthService {
       this.provider = await AsyncStorage.getItem(STORAGE_KEYS.PROVIDER);
     } catch (error) {
       console.error('Error loading health provider:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
     }
   }
 
@@ -57,7 +63,9 @@ class HealthService {
       this.provider = provider;
     } catch (error) {
       console.error('Error saving health provider:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
     }
   }
 
@@ -74,7 +82,9 @@ class HealthService {
         }
       } catch (error) {
         console.error('Error in health sync interval:', error);
-        crashlytics.recordError(error as Error);
+        if (crashlytics) {
+          crashlytics.recordError(error as Error);
+        }
       }
     }, HEALTH_SYNC_INTERVAL);
   }
@@ -111,7 +121,9 @@ class HealthService {
       return false;
     } catch (error) {
       console.error('Error initializing health service:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       return false;
     }
   }
@@ -135,7 +147,9 @@ class HealthService {
       }
     } catch (error) {
       console.error('Error requesting health permissions:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       return false;
     }
   }
@@ -189,7 +203,8 @@ class HealthService {
           if (fitbitData) {
             data = {
               ...fitbitData,
-              timestamp: now
+              timestamp: now,
+              calories: fitbitData.calories || 0 // Ensure 'calories' property is included
             };
           }
           break;
@@ -202,7 +217,9 @@ class HealthService {
       return data;
     } catch (error) {
       console.error('Error getting health data:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       return null;
     }
   }
@@ -235,7 +252,9 @@ class HealthService {
       return false;
     } catch (error) {
       console.error('Error changing health provider:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       return false;
     }
   }

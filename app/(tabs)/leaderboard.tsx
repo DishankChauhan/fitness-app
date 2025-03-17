@@ -8,6 +8,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/app/hooks/useColorScheme';
 import { useAuth } from '@/app/hooks/useAuth';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as socialService from '@/services/socialService';
 /// <reference path="../../types/sf-symbols.d.ts" />
 
 interface LeaderboardEntry {
@@ -15,9 +16,9 @@ interface LeaderboardEntry {
   displayName: string;
   rank: number;
   score: number;
-  completedChallenges: number;
-  activeChallenges: number;
-  badges: string[];
+  completedChallenges?: number;
+  activeChallenges?: number;
+  badges?: string[];
 }
 
 const AnimatedThemedView = Animated.createAnimatedComponent(ThemedView);
@@ -36,35 +37,37 @@ export default function LeaderboardScreen() {
   const loadLeaderboard = async () => {
     try {
       setError(null);
-      // TODO: Replace with actual API call
-      const mockData: LeaderboardEntry[] = [
-        {
-          userId: '1',
-          displayName: 'John Doe',
-          rank: 1,
-          score: 1250,
-          completedChallenges: 5,
-          activeChallenges: 2,
-          badges: ['early_bird', 'challenger'],
-        },
-        {
-          userId: '2',
-          displayName: 'Jane Smith',
-          rank: 2,
-          score: 1100,
-          completedChallenges: 4,
-          activeChallenges: 3,
-          badges: ['consistent', 'social'],
-        },
-        // Add more mock data as needed
-      ];
-      setLeaderboard(mockData);
+      setLoading(true);
+      
+      // Get basic leaderboard data from the socialService
+      const leaderboardData = await socialService.getLeaderboard();
+      
+      // Enhance the leaderboard data with badges and challenges
+      // In a real app, you might have a separate API call for this detailed data
+      const enhancedData: LeaderboardEntry[] = leaderboardData.map(entry => ({
+        ...entry,
+        completedChallenges: Math.floor(Math.random() * 10), // This would come from user stats in a real app
+        activeChallenges: Math.floor(Math.random() * 5),
+        badges: getBadgesForUser(entry.userId),
+      }));
+      
+      setLeaderboard(enhancedData);
     } catch (err) {
+      console.error('Error loading leaderboard:', err);
       setError((err as Error).message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  };
+
+  // Mock function to generate badges - in a real app, this would be fetched from the API
+  const getBadgesForUser = (userId: string): string[] => {
+    // This is just for demonstration - would be replaced with real data
+    const allBadges = ['early_bird', 'challenger', 'consistent', 'social'];
+    const numBadges = Math.floor(Math.random() * 3) + 1; // 1-3 badges
+    const shuffled = [...allBadges].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, numBadges);
   };
 
   useEffect(() => {
@@ -114,7 +117,7 @@ export default function LeaderboardScreen() {
             {item.displayName}
           </ThemedText>
           <ThemedView style={styles.badgeContainer}>
-            {item.badges.map((badge, badgeIndex) => (
+            {item.badges?.map((badge, badgeIndex) => (
               <IconSymbol
                 key={badgeIndex}
                 name={getBadgeIcon(badge) as IconSymbolName}

@@ -6,6 +6,10 @@
 - [Challenge Service](#challenge-service)
 - [Group Service](#group-service)
 - [Achievement Service](#achievement-service)
+- [Solana Service](#solana-service)
+- [Common Data Types](#common-data-types)
+- [Error Handling](#error-handling)
+- [Performance Considerations](#performance-considerations)
 
 ## Authentication Service
 
@@ -25,12 +29,26 @@ Creates a new user account with the provided credentials.
 
 **Example:**
 ```typescript
-const user = await authService.signUp(
-  'user@example.com',
-  'password123',
-  'John Doe'
-);
+try {
+  const user = await authService.signUp(
+    'user@example.com',
+    'password123',
+    'John Doe'
+  );
+  console.log(`User created: ${user.id}`);
+} catch (error) {
+  console.error('Sign up failed:', error.message);
+  // Handle specific error codes
+  if (error.code === 'auth/email-already-in-use') {
+    // Handle duplicate email
+  }
+}
 ```
+
+**Error Codes:**
+- `auth/email-already-in-use`: The email is already registered
+- `auth/invalid-email`: The email format is invalid
+- `auth/weak-password`: The password doesn't meet strength requirements
 
 #### `signIn(email: string, password: string): Promise<User>`
 Signs in an existing user with email and password.
@@ -43,10 +61,19 @@ Signs in an existing user with email and password.
 
 **Example:**
 ```typescript
-const user = await authService.signIn(
-  'user@example.com',
-  'password123'
-);
+try {
+  const user = await authService.signIn(
+    'user@example.com',
+    'password123'
+  );
+  console.log(`Signed in as: ${user.displayName}`);
+  
+  // Access user profile data
+  const profile = await authService.getUserProfile(user.id);
+  console.log(`User has ${profile.tokens} tokens and ${profile.challenges.length} challenges`);
+} catch (error) {
+  console.error('Sign in failed:', error.message);
+}
 ```
 
 #### `signOut(): Promise<void>`
@@ -282,4 +309,223 @@ await achievementService.updateAchievementProgress(
   'challenger',
   75
 );
-``` 
+```
+
+## Solana Service
+
+The Solana Service provides blockchain functionality for financial transactions within challenges.
+
+### Methods
+
+#### `initializeWallet(): Promise<void>`
+Initializes the Solana wallet for the current user. Creates a new wallet if one doesn't exist or loads the existing wallet.
+
+**Returns:** Promise that resolves when the wallet is initialized
+
+**Example:**
+```typescript
+try {
+  await solanaService.initializeWallet();
+  console.log('Wallet initialized successfully');
+  
+  // Check wallet balance after initialization
+  const balance = await solanaService.getBalance();
+  console.log(`Current wallet balance: ${balance} SOL`);
+} catch (error) {
+  console.error('Failed to initialize wallet:', error.message);
+}
+```
+
+#### `getBalance(): Promise<number>`
+Gets the current balance of the user's Solana wallet in SOL.
+
+**Returns:** Promise resolving to the wallet balance in SOL
+
+**Example:**
+```typescript
+try {
+  const balance = await solanaService.getBalance();
+  console.log(`Current wallet balance: ${balance} SOL`);
+  
+  // Check if user has enough funds for a challenge
+  if (balance < 1.0) {
+    console.log('Insufficient funds for staking');
+  }
+} catch (error) {
+  console.error('Failed to get balance:', error.message);
+}
+```
+
+#### `createChallenge(challengeId: string, stakeAmount: number): Promise<string>`
+Creates a new challenge on the Solana blockchain with the specified stake amount.
+
+**Parameters:**
+- `challengeId`: The unique identifier for the challenge (from Firestore)
+- `stakeAmount`: The amount of SOL to stake in the challenge
+
+**Returns:** Promise resolving to the Solana address of the created challenge
+
+**Example:**
+```typescript
+try {
+  // Create a challenge with 1 SOL stake
+  const challengeAddress = await solanaService.createChallenge(
+    'abc123', // Firestore challenge ID
+    1.0       // 1 SOL stake
+  );
+  
+  console.log(`Challenge created on Solana at address: ${challengeAddress}`);
+  
+  // Store the Solana address in Firestore
+  await challengeService.updateChallenge(challengeId, {
+    solanaAddress: challengeAddress
+  });
+} catch (error) {
+  console.error('Failed to create challenge on Solana:', error.message);
+}
+```
+
+#### `stakeInChallenge(challengeAddress: string, amount: number): Promise<void>`
+Stakes tokens in an existing challenge on the Solana blockchain.
+
+**Parameters:**
+- `challengeAddress`: The Solana address of the challenge
+- `amount`: The amount of SOL to stake
+
+**Returns:** Promise that resolves when the staking is complete
+
+**Example:**
+```typescript
+try {
+  // Join a challenge with 0.5 SOL stake
+  await solanaService.stakeInChallenge(
+    'solana_address_here',  // Solana challenge address
+    0.5                     // 0.5 SOL stake
+  );
+  
+  console.log('Successfully staked in challenge');
+} catch (error) {
+  console.error('Failed to stake in challenge:', error.message);
+}
+```
+
+#### `distributeReward(challengeAddress: string, winnerAddress: string, amount: number): Promise<void>`
+Distributes rewards from a challenge to a winner.
+
+**Parameters:**
+- `challengeAddress`: The Solana address of the challenge
+- `winnerAddress`: The recipient's address
+- `amount`: The reward amount in SOL
+
+**Returns:** Promise that resolves when the distribution is complete
+
+**Example:**
+```typescript
+try {
+  // Distribute 1.5 SOL reward to winner
+  await solanaService.distributeReward(
+    'solana_challenge_address', // Challenge address
+    'winner_address',           // Winner's address
+    1.5                         // 1.5 SOL reward
+  );
+  
+  console.log('Successfully distributed reward');
+} catch (error) {
+  console.error('Failed to distribute reward:', error.message);
+}
+```
+
+## Common Data Types
+
+### UserProfile
+
+```typescript
+interface UserProfile {
+  id: string;
+  email: string;
+  displayName?: string;
+  photoURL?: string;
+  createdAt: string;
+  lastLogin?: string;
+  tokens: number;
+  challenges: string[];
+  achievements: string[];
+  stats: {
+    completedChallenges: number;
+    totalSteps: number;
+    activeDays: number;
+    streak: number;
+  };
+}
+```
+
+### Challenge
+
+```typescript
+interface Challenge {
+  id: string;
+  title: string;
+  description: string;
+  type: 'steps' | 'activeMinutes' | 'heartRate' | 'sleepHours';
+  goal: number;
+  stake: number;
+  startDate: string;
+  endDate: string;
+  createdBy: string;
+  participants: string[];
+  status: 'active' | 'completed' | 'failed';
+  visibility: 'public' | 'private' | 'invite_only';
+  groupId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  prizePool: number;
+  progress?: number;
+  solanaAddress?: string;
+}
+```
+
+## Error Handling
+
+All services in the application use a consistent error handling approach:
+
+1. Specific errors are thrown with descriptive messages
+2. Firebase error codes are preserved when applicable
+3. Errors are logged to analytics and crashlytics
+4. For UI components, errors should be caught and displayed to users
+
+Example error handling pattern:
+
+```typescript
+try {
+  // Call service method
+  await challengeService.joinChallenge(challengeId);
+} catch (error) {
+  if (error.message.includes('Insufficient tokens')) {
+    // Handle specific error case
+    showInsufficientTokensAlert();
+  } else if (error.message.includes('Already joined')) {
+    // Handle already joined error
+    showAlreadyJoinedAlert();
+  } else {
+    // Generic error handling
+    showErrorAlert(error.message);
+  }
+  
+  // Log error to analytics
+  analytics.logEvent('error', {
+    method: 'joinChallenge',
+    message: error.message,
+    challengeId
+  });
+}
+```
+
+## Performance Considerations
+
+For optimal performance, follow these guidelines when using the API:
+
+1. **Caching**: Health and challenge data is cached. Check cache TTL values in respective services.
+2. **Batch Operations**: Use batch operations when updating multiple documents.
+3. **Pagination**: Leaderboards and challenge lists are paginated. Use the limit parameter.
+4. **Offline Support**: The app works offline and syncs when online. Changes are queued for sync.
+5. **Solana Transactions**: Solana transactions can take time to confirm. Use the status tracking methods. 

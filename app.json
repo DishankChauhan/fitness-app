@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "accountability-app",
+    "name": "Accountability App",
     "slug": "accountability-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "accountability-app",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -44,10 +44,26 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "react-native-health"
+      "react-native-health",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "@react-native-firebase/firestore",
+      "@react-native-firebase/storage",
+      "@react-native-firebase/crashlytics",
+      "@react-native-firebase/analytics",
+      "@react-native-firebase/performance",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
     }
   }
 }

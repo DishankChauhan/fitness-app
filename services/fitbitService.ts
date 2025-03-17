@@ -24,6 +24,7 @@ interface FitbitTokens {
 }
 
 interface FitbitHealthData {
+  calories: number;
   steps: number;
   activeMinutes: number;
   heartRate: number;
@@ -53,7 +54,9 @@ class FitbitService {
       }
     } catch (error) {
       console.error('Error loading Fitbit tokens:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
     }
   }
 
@@ -63,7 +66,9 @@ class FitbitService {
       this.tokens = tokens;
     } catch (error) {
       console.error('Error saving Fitbit tokens:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
     }
   }
 
@@ -78,7 +83,9 @@ class FitbitService {
       return true;
     } catch (error) {
       console.error('Fitbit authorization error:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       return false;
     }
   }
@@ -106,7 +113,9 @@ class FitbitService {
       return true;
     } catch (error) {
       console.error('Fitbit token refresh error:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       return false;
     }
   }
@@ -140,12 +149,15 @@ class FitbitService {
       return {
         steps: activities.summary.steps || 0,
         activeMinutes: activities.summary.veryActiveMinutes || 0,
-        heartRate: heart.activities-heart[0]?.value?.restingHeartRate || 0,
-        sleepHours: sleep.summary.totalTimeInBed / 60 || 0
+        heartRate: heart['activities-heart'][0]?.value?.restingHeartRate || 0,
+        sleepHours: sleep.summary.totalTimeInBed / 60 || 0,
+        calories: activities.summary.calories || 0
       };
     } catch (error) {
       console.error('Error fetching Fitbit health data:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }

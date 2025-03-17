@@ -23,7 +23,11 @@ export function useHealthData(): HealthDataHook {
       setIsLoading(true);
       setError(null);
       const data = await healthService.getHealthData();
-      setHealthData(data);
+      if (data) {
+        setHealthData(data);
+      } else {
+        setError('Failed to fetch health data');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch health data');
     } finally {

@@ -31,7 +31,7 @@ export default function HomeScreen() {
     try {
       setError(null);
       const data = await challengeService.getAllChallenges();
-      setChallenges(data);
+      setChallenges(data as unknown as (Challenge | UserChallenge)[]);
     } catch (err) {
       setError((err as Error).message);
     } finally {

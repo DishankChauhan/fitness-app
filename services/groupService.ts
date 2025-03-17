@@ -36,7 +36,9 @@ class GroupService {
       return { id: groupRef.id, ...groupData };
     } catch (error) {
       console.error('Error creating group:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -48,7 +50,9 @@ class GroupService {
       return { id: groupDoc.id, ...groupDoc.data() } as ChallengeGroup;
     } catch (error) {
       console.error('Error getting group:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -68,7 +72,9 @@ class GroupService {
       });
     } catch (error) {
       console.error('Error updating group:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -96,7 +102,9 @@ class GroupService {
       await firestore().collection('invites').add(invite);
     } catch (error) {
       console.error('Error inviting to group:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -130,7 +138,9 @@ class GroupService {
       });
     } catch (error) {
       console.error('Error responding to invite:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -155,7 +165,9 @@ class GroupService {
       return { id: commentRef.id, ...comment };
     } catch (error) {
       console.error('Error adding comment:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -175,7 +187,9 @@ class GroupService {
       await commentRef.update({ likes });
     } catch (error) {
       console.error('Error toggling like:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -205,7 +219,9 @@ class GroupService {
       return { id: challengeRef.id, ...challengeData };
     } catch (error) {
       console.error('Error creating group challenge:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }
@@ -224,7 +240,9 @@ class GroupService {
       })) as Challenge[];
     } catch (error) {
       console.error('Error getting group challenges:', error);
-      crashlytics.recordError(error as Error);
+      if (crashlytics) {
+        crashlytics.recordError(error as Error);
+      }
       throw error;
     }
   }

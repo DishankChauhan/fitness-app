@@ -23,8 +23,10 @@ import {
 } from '../config/firebase';
 import { healthService } from './healthService';
 import * as authService from './authService';
+import { solanaService } from './solanaService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import firestore from '@react-native-firebase/firestore';
+import { UserProfile } from '../types/user';
 
 // Constants
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -76,6 +78,7 @@ export interface Challenge {
   createdAt: string;
   updatedAt: string;
   progress?: number;
+  solanaAddress?: string;
 }
 
 export class ChallengeService {
@@ -108,12 +111,12 @@ export class ChallengeService {
   }
 
   private handleError(error: Error, operation: string): void {
-    console.error(`ChallengeService Error (${operation}):`, error);
-    crashlytics.recordError(error);
-    logAnalyticsEvent('challenge_error', {
-      operation,
-      errorMessage: error.message,
-    });
+    console.error(`Error in ${operation}:`, error);
+    // Only record the error if crashlytics is available
+    if (crashlytics) {
+      crashlytics.recordError(error);
+    }
+    throw error;
   }
 
   private async getUserTokens(): Promise<number> {
@@ -303,58 +306,51 @@ export class ChallengeService {
       const user = await authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
 
-      const challengeRef = doc(db, 'challenges', challengeId);
+      // Get challenge
+      const challengeDoc = await this.challengesCollection.doc(challengeId).get();
+      if (!challengeDoc.exists) throw new Error('Challenge not found');
+
+      const challenge = { id: challengeDoc.id, ...challengeDoc.data() } as Challenge;
+      
+      // Check if user is already a participant
+      if (challenge.participants.includes(user.id)) {
+        throw new Error('Already joined this challenge');
+      }
+
+      // Validate user can join (e.g., has enough tokens)
       const userTokens = await this.getUserTokens();
+      if (userTokens < challenge.stake) {
+        throw new Error('Insufficient tokens to join challenge');
+      }
 
-      await runTransaction(db, async (transaction: Transaction) => {
-        const challengeDoc = await transaction.get(challengeRef);
-        if (!challengeDoc.exists) throw new Error('Challenge not found');
+      // Initialize Solana wallet if needed
+      await solanaService.initializeWallet();
 
-        const challenge = challengeDoc.data() as Challenge;
-        this.validateChallenge(challenge);
+      // Stake tokens in Solana program
+      if (challenge.solanaAddress) {
+        await solanaService.stakeInChallenge(
+          challenge.solanaAddress,
+          challenge.stake
+        );
+      }
 
-        if (userTokens < challenge.stake) {
-          throw new Error('Insufficient tokens');
-        }
-
-        if (challenge.status !== 'active') {
-          throw new Error('Challenge is not active');
-        }
-
-        if (challenge.participants.includes(user.id)) {
-          throw new Error('Already joined this challenge');
-        }
-
-        const progress = await this.getChallengeProgress(challenge.type, challenge.goal);
-
-        // Create user challenge
-        const userChallenge: UserChallenge = {
-          userId: user.id,
-          displayName: user.displayName || 'Anonymous',
-          ...challenge,
-          id: challengeId,
-          progress,
-          participants: [...challenge.participants, user.id],
-          prizePool: 0 // Set prizePool to 0 instead of undefined to fix the type error
-        };
-
-        // Update challenge in Firestore
-        transaction.update(challengeRef, {
-          participants: userChallenge.participants,
-          prizePool: userChallenge.prizePool
-        });
-
-        // Add to user challenges
-        const userChallengeRef = doc(db, 'userChallenges', challengeId);
-        transaction.set(userChallengeRef, userChallenge);
-
-        // Update user tokens
-        await this.setUserTokens(userTokens - challenge.stake);
+      // Update Firestore
+      await this.challengesCollection.doc(challengeId).update({
+        participants: firestore.FieldValue.arrayUnion(user.id),
+        prizePool: firestore.FieldValue.increment(challenge.stake),
+        updatedAt: new Date().toISOString()
       });
 
-      logAnalyticsEvent('challenge_joined', { challengeId });
+      // Deduct tokens from user
+      await this.setUserTokens(userTokens - challenge.stake);
+
+      // Log event
+      logAnalyticsEvent('challenge_joined', {
+        challenge_id: challengeId,
+        stake_amount: challenge.stake
+      });
     } catch (error) {
-      this.handleError(error as Error, 'join_challenge');
+      this.handleError(error as Error, 'joinChallenge');
       throw error;
     }
   }
@@ -411,60 +407,62 @@ export class ChallengeService {
 
   async checkChallengeCompletion(challengeId: string): Promise<void> {
     try {
-      const challengeRef = doc(db, 'challenges', challengeId);
-      const userChallengesRef = query(
-        collection(db, 'userChallenges'),
-        where('id', '==', challengeId),
-        where('status', '==', 'active')
+      const user = await authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Get challenge
+      const challengeDoc = await this.challengesCollection.doc(challengeId).get();
+      if (!challengeDoc.exists) throw new Error('Challenge not found');
+
+      const challenge = { id: challengeDoc.id, ...challengeDoc.data() } as Challenge;
+      
+      // Ensure user is a participant
+      if (!challenge.participants.includes(user.id)) {
+        throw new Error('Not a participant in this challenge');
+      }
+      
+      // Get current progress
+      const currentProgress = await this.getChallengeProgress(
+        challenge.type,
+        challenge.goal
       );
-
-      await runTransaction(db, async (transaction: Transaction) => {
-        const [challengeDoc, userChallengesSnapshot] = await Promise.all([
-          transaction.get(challengeRef),
-          getDocs(userChallengesRef)
-        ]);
-
-        if (!challengeDoc.exists) {
-          throw new Error('Challenge not found');
+      
+      // Determine if challenge is completed
+      const isCompleted = currentProgress >= 100;
+      
+      if (isCompleted && challenge.status !== 'completed') {
+        // Initialize Solana wallet if needed
+        await solanaService.initializeWallet();
+        
+        // Handle completion with Solana
+        if (challenge.solanaAddress) {
+          // Distribute reward
+          await solanaService.distributeReward(
+            challenge.solanaAddress,
+            user.id, // Using user ID, would need to map to Solana address in production
+            challenge.stake
+          );
         }
-
-        const challenge = challengeDoc.data() as Challenge;
-        const completedParticipants = userChallengesSnapshot.docs
-          .filter((doc: QueryDocumentSnapshot<DocumentData>) => doc.data().progress >= 100)
-          .map((doc: QueryDocumentSnapshot<DocumentData>) => doc.data().userId);
-
-        if (completedParticipants.length === 0) {
-          // No winners, return stakes to all participants
-          for (const doc of userChallengesSnapshot.docs) {
-            const userChallenge = doc.data() as UserChallenge;
-            const userTokens = await this.getUserTokens();
-            await this.setUserTokens(userTokens + challenge.stake);
-            transaction.update(doc.ref, { status: 'completed' });
-          }
-        } else {
-          // Distribute prize pool among winners
-          const reward = Math.floor(challenge.prizePool / completedParticipants.length);
-          for (const userId of completedParticipants) {
-            const userDoc = await getDocs(query(collection(db, 'users'), where('id', '==', userId)));
-            const userTokens = userDoc.docs[0]?.data()?.tokens || 0;
-            await this.setUserTokens(userTokens + reward);
-          }
-        }
-
-        // Mark challenge as completed
-        transaction.update(challengeRef, { status: 'completed' });
-        userChallengesSnapshot.docs.forEach((doc: QueryDocumentSnapshot<DocumentData>) => {
-          transaction.update(doc.ref, { status: 'completed' });
+        
+        // Update Firestore
+        await this.challengesCollection.doc(challengeId).update({
+          status: 'completed',
+          updatedAt: new Date().toISOString()
         });
-
+        
+        // Add tokens back to user plus reward
+        const userTokens = await this.getUserTokens();
+        const reward = challenge.stake;
+        await this.setUserTokens(userTokens + reward);
+        
+        // Log event
         logAnalyticsEvent('challenge_completed', {
-          challengeId,
-          winners: completedParticipants.length,
-          prizePool: challenge.prizePool,
+          challenge_id: challengeId,
+          reward_amount: reward
         });
-      });
+      }
     } catch (error) {
-      this.handleError(error as Error, 'check_challenge_completion');
+      this.handleError(error as Error, 'checkChallengeCompletion');
       throw error;
     }
   }
@@ -489,29 +487,63 @@ export class ChallengeService {
   }
 
   async createChallenge(params: CreateChallengeParams): Promise<Challenge> {
-    const currentUser = await authService.getCurrentUser();
-    if (!currentUser) {
-      throw new Error('User not authenticated');
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Initialize Solana wallet if needed
+      await solanaService.initializeWallet();
+      
+      // Create document in Firestore first
+      const challengeData: Omit<Challenge, 'id'> = {
+        title: params.title,
+        description: params.description,
+        type: params.type,
+        goal: params.goal,
+        stake: params.stake,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        createdBy: user.id,
+        participants: [user.id],
+        status: 'active',
+        visibility: params.visibility,
+        groupId: params.groupId || null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        prizePool: params.stake, // Initial prize pool is the creator's stake
+      };
+
+      const docRef = await this.challengesCollection.add(challengeData);
+      const challengeId = docRef.id;
+      
+      // Create Solana challenge with the Firestore ID
+      const solanaAddress = await solanaService.createChallenge(
+        challengeId,
+        params.stake
+      );
+      
+      // Update Firestore document with Solana address
+      await docRef.update({
+        solanaAddress
+      });
+
+      // Log event
+      logAnalyticsEvent('challenge_created', {
+        challenge_id: challengeId,
+        challenge_type: params.type,
+        stake_amount: params.stake,
+        solana_address: solanaAddress
+      });
+
+      return {
+        ...challengeData,
+        id: challengeId,
+        solanaAddress
+      } as Challenge;
+    } catch (error) {
+      this.handleError(error as Error, 'createChallenge');
+      throw error;
     }
-
-    const now = new Date().toISOString();
-    const challenge: Omit<Challenge, 'id'> = {
-      ...params,
-      createdBy: currentUser.id,
-      participants: [currentUser.id],
-      status: 'active',
-      groupId: params.groupId ?? null,
-      createdAt: now,
-      updatedAt: now,
-      progress: 0,
-      prizePool: 0
-    };
-
-    const docRef = await this.challengesCollection.add(challenge);
-    return {
-      id: docRef.id,
-      ...challenge
-    };
   }
 
   async getChallenge(challengeId: string): Promise<Challenge | null> {

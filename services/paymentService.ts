@@ -101,9 +101,10 @@ class PaymentService {
       await this.initialize();
     }
   }
-
   private handleError(error: PaymentError, operation: string): void {
-    crashlytics.recordError(error);
+    if (crashlytics) {
+      crashlytics.recordError(error);
+    }
     logAnalyticsEvent('payment_error', {
       operation,
       errorMessage: error.message,

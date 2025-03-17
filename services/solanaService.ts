@@ -58,12 +58,12 @@ class SolanaService {
         this.connection,
         {
           publicKey: this.wallet.publicKey,
-          signTransaction: async (tx) => {
+          signTransaction: async (tx: { partialSign: (arg0: Keypair) => void; }) => {
             tx.partialSign(this.wallet!);
             return tx;
           },
-          signAllTransactions: async (txs) => {
-            txs.forEach(tx => tx.partialSign(this.wallet!));
+          signAllTransactions: async (txs: { partialSign: (arg0: Keypair) => any; }[]) => {
+            txs.forEach((tx: { partialSign: (arg0: Keypair) => any; }) => tx.partialSign(this.wallet!));
             return txs;
           }
         },

@@ -17,7 +17,15 @@ export function useHealthData() {
         setIsLoading(true);
         setError(null);
         const data = await healthService.getHealthData();
-        setHealthData(data);
+        if (data) {
+          setHealthData({
+            steps: data.steps,
+            calories: data.calories || 0,
+            activeMinutes: data.activeMinutes,
+          });
+        } else {
+          throw new Error('No health data available');
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch health data');
       } finally {

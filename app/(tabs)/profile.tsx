@@ -12,6 +12,8 @@ import { useColorScheme } from '@/app/hooks/useColorScheme';
 import { useAuth } from '@/app/hooks/useAuth';
 import { Challenge, UserChallenge } from '@/types/challenge';
 import { challengeService } from '@/services/challengeService';
+import * as walletService from '@/services/walletService';
+import * as authService from '@/services/authService';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 const AnimatedThemedView = Animated.createAnimatedComponent(ThemedView);
@@ -29,6 +31,59 @@ interface UserStats {
     icon: string;
     unlockedAt?: string;
   }[];
+}
+
+interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  requiredScore: number;
+}
+
+// In a real app, these would come from the database
+const ACHIEVEMENTS: Achievement[] = [
+  {
+    id: '1',
+    title: 'Early Bird',
+    description: 'Complete 5 morning challenges',
+    icon: 'sun.max.fill',
+    requiredScore: 5
+  },
+  {
+    id: '2',
+    title: 'Challenger',
+    description: 'Join 10 challenges',
+    icon: 'trophy.fill',
+    requiredScore: 10
+  },
+  {
+    id: '3',
+    title: 'Consistent',
+    description: 'Maintain streak for 30 days',
+    icon: 'checkmark.seal.fill',
+    requiredScore: 30
+  },
+  {
+    id: '4',
+    title: 'Social',
+    description: 'Complete 5 group challenges',
+    icon: 'person.2.fill',
+    requiredScore: 5
+  }
+];
+
+// Define a local type that matches the service response
+interface ServiceUserChallenge {
+  id: string;
+  userId: string;
+  challengeId: string;
+  status: string;
+  progress: number;
+  startDate: string;
+  endDate?: string;
+  lastCheckIn?: string;
+  isGroupChallenge?: boolean;
 }
 
 export default function ProfileScreen() {
@@ -51,42 +106,44 @@ export default function ProfileScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const loadUserData = async () => {
+    if (!user) return;
+    
     try {
       setError(null);
-      // TODO: Replace with actual API calls
-      const mockStats: UserStats = {
-        totalChallenges: 10,
-        completedChallenges: 7,
-        activeChallenges: 2,
-        totalTokens: 500,
-        successRate: 70,
-        achievements: [
-          {
-            id: '1',
-            title: 'Early Bird',
-            description: 'Complete 5 morning challenges',
-            icon: 'sun.max.fill',
-            unlockedAt: '2024-03-15',
-          },
-          {
-            id: '2',
-            title: 'Challenger',
-            description: 'Join 10 challenges',
-            icon: 'trophy.fill',
-          },
-          {
-            id: '3',
-            title: 'Consistent',
-            description: 'Maintain streak for 30 days',
-            icon: 'checkmark.seal.fill',
-            unlockedAt: '2024-03-10',
-          },
-        ],
-      };
-      setStats(mockStats);
-      const challenges = await challengeService.getUserChallenges();
-      setRecentChallenges(challenges.slice(0, 3) as unknown as (Challenge | UserChallenge)[]);
+      setLoading(true);
+      
+      // Get user profile from auth service
+      const userProfile = await authService.getCurrentUser();
+      if (!userProfile) throw new Error('User not found');
+      
+      // Get user challenges
+      const userChallenges = await challengeService.getUserChallenges() as unknown as ServiceUserChallenge[];
+      
+      // Get wallet stats
+      const walletStats = await walletService.getWalletStats();
+      
+      // Calculate stats
+      const completedChallenges = userChallenges.filter(c => c.status === 'completed').length;
+      const activeChallenges = userChallenges.filter(c => c.status === 'active').length;
+      const totalChallenges = userChallenges.length;
+      const successRate = totalChallenges > 0 ? (completedChallenges / totalChallenges) * 100 : 0;
+      
+      // Calculate unlocked achievements
+      const unlockedAchievements = calculateUnlockedAchievements(userProfile, userChallenges);
+      
+      setStats({
+        totalChallenges,
+        completedChallenges,
+        activeChallenges,
+        totalTokens: walletStats.availableBalance,
+        successRate,
+        achievements: unlockedAchievements,
+      });
+      
+      // Get recent challenges - cast to the expected type for the state
+      setRecentChallenges(userChallenges.slice(0, 3) as unknown as (Challenge | UserChallenge)[]);
     } catch (err) {
+      console.error('Error loading user data:', err);
       setError((err as Error).message);
     } finally {
       setLoading(false);
@@ -94,9 +151,51 @@ export default function ProfileScreen() {
     }
   };
 
+  const calculateUnlockedAchievements = (
+    userProfile: authService.UserProfile, 
+    challenges: ServiceUserChallenge[]
+  ) => {
+    return ACHIEVEMENTS.map(achievement => {
+      let unlocked = false;
+      let unlockedAt: string | undefined = undefined;
+      
+      // This is simplified logic - in a real app, you'd have more sophisticated criteria
+      switch (achievement.id) {
+        case '1': // Early Bird
+          const morningChallenges = challenges.filter(c => {
+            const startHour = new Date(c.startDate).getHours();
+            return startHour >= 5 && startHour <= 9;
+          }).length;
+          unlocked = morningChallenges >= achievement.requiredScore;
+          break;
+        case '2': // Challenger
+          unlocked = challenges.length >= achievement.requiredScore;
+          break;
+        case '3': // Consistent
+          // This would require streak data in a real app
+          unlocked = (userProfile.stats?.longestStreak || 0) >= achievement.requiredScore;
+          break;
+        case '4': // Social
+          const groupChallenges = challenges.filter(c => c.isGroupChallenge === true).length;
+          unlocked = groupChallenges >= achievement.requiredScore;
+          break;
+      }
+      
+      if (unlocked) {
+        // In a real app, this would be the actual date the achievement was unlocked
+        unlockedAt = new Date().toISOString();
+      }
+      
+      return {
+        ...achievement,
+        unlockedAt
+      };
+    });
+  };
+
   useEffect(() => {
     loadUserData();
-  }, []);
+  }, [user]);
 
   const handleRefresh = () => {
     setRefreshing(true);
