@@ -22,6 +22,22 @@ const MAPPING = {
 
 export type IconSymbolName = keyof typeof MAPPING;
 
+export type SFSymbols6_0 = 
+  | 'sun.max.fill'
+  | 'trophy.fill'
+  | 'checkmark.seal.fill'
+  | 'person.2.fill'
+  | 'star.fill'
+  | 'flame.fill'
+  | 'figure.walk'
+  | 'dollarsign.circle';
+
+interface IconSymbolProps {
+  name: SFSymbols6_0;
+  size?: number;
+  color?: string;
+}
+
 /**
  * An icon component that uses native SFSymbols on iOS, and MaterialIcons on Android and web. This ensures a consistent look across platforms, and optimal resource usage.
  *

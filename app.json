@@ -9,13 +9,24 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.accountability.app",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "This app requires access to your health data to track your fitness activities.",
+        "NSHealthUpdateUsageDescription": "This app requires access to write health data to track your fitness activities."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.accountability.app",
+      "permissions": [
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.BODY_SENSORS",
+        "android.permission.HEALTH_CONNECT"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -32,7 +43,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "react-native-health"
     ],
     "experiments": {
       "typedRoutes": true

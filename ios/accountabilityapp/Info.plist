@@ -1,0 +1,4 @@
+<key>NSHealthShareUsageDescription</key>
+<string>We need access to your health data to track your progress in challenges and verify goal completion.</string>
+<key>NSHealthUpdateUsageDescription</key>
+<string>We need access to update your health data for challenge tracking and progress updates.</string> 
