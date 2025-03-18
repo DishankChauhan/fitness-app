@@ -25,7 +25,9 @@ class GroupService {
         name,
         description,
         createdBy: user.id,
-        members: [user.id],
+        participants: [user.id],
+        maxParticipants: 10,
+        challengeId: '',
         admins: [user.id],
         visibility,
         createdAt: new Date().toISOString(),
@@ -126,7 +128,7 @@ class GroupService {
           const group = (await transaction.get(groupRef)).data() as ChallengeGroup;
           
           transaction.update(groupRef, {
-            members: [...group.members, user.id],
+            participants: [...group.participants, user.id],
             updatedAt: new Date().toISOString()
           });
         }
@@ -202,7 +204,7 @@ class GroupService {
 
       const group = await this.getGroup(groupId);
       if (!group) throw new Error('Group not found');
-      if (!group.members.includes(user.id)) throw new Error('Not a group member');
+      if (!group.participants.includes(user.id)) throw new Error('Not a group member');
 
       const challengeData: Omit<Challenge, 'id'> = {
         ...challenge,

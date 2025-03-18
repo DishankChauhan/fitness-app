@@ -66,7 +66,9 @@ export function useChallenges() {
     
     // Check for challenge completion every minute
     const interval = setInterval(async () => {
-      await challengeService.checkChallengeCompletion();
+      for (const challenge of state.active) {
+        await challengeService.checkChallengeCompletion(challenge.id);
+      }
       await fetchChallenges();
     }, 60000);
 

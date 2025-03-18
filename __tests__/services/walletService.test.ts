@@ -13,20 +13,30 @@ import {
   updateDoc, 
   doc 
 } from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
+import { Transaction, WalletStats } from '../../types/wallet';
+import { FirebaseFirestore } from '@firebase/firestore-types';
 
 // Mock Firebase modules
-jest.mock('../../config/firebase', () => ({
-  db: {},
-  collection,
-  query,
-  where,
-  orderBy,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  doc
-}));
+jest.mock('../../config/firebase', () => {
+  const mockFirestore = {
+    collection: jest.fn().mockReturnThis(),
+    doc: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    get: jest.fn(),
+    add: jest.fn(),
+    update: jest.fn(),
+  };
+
+  return {
+    auth: {
+      currentUser: null,
+    },
+    db: mockFirestore as unknown as FirebaseFirestore,
+  };
+});
 
 // Mock the imported Firebase functions
 jest.mock('firebase/firestore', () => ({
@@ -81,197 +91,174 @@ jest.mock('../../services/authService', () => ({
 }));
 
 describe('Wallet Service', () => {
+  const mockUser = {
+    uid: 'test-user-id',
+  };
+
+  const mockTransaction: Transaction = {
+    id: 'test-transaction-id',
+    userId: 'test-user-id',
+    amount: 100,
+    type: 'deposit',
+    status: 'completed',
+    timestamp: new Date(),
+    description: 'Test transaction',
+  };
+
+  const mockWalletStats: WalletStats = {
+    balance: 1000,
+    totalEarned: 2000,
+    totalSpent: 1000,
+    recentTransactions: [],
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
+    (auth as any).currentUser = mockUser;
   });
 
   describe('getWalletStats', () => {
-    it('should return wallet stats', async () => {
-      // Mock for this test
-      const mockUserChallenges = {
+    beforeEach(() => {
+      const mockQuerySnapshot = {
         docs: [
           {
             data: () => ({
-              userId: 'test-user-id',
-              stakedAmount: 2, // 2 SOL
-              status: 'active',
-            }),
-          },
-          {
-            data: () => ({
-              userId: 'test-user-id',
-              stakedAmount: 3, // 3 SOL
-              status: 'active',
+              balance: mockWalletStats.balance,
+              totalEarned: mockWalletStats.totalEarned,
+              totalSpent: mockWalletStats.totalSpent,
             }),
           },
         ],
       };
 
-      const mockPendingRewards = {
+      const mockTransactionsSnapshot = {
         docs: [
           {
+            id: mockTransaction.id,
             data: () => ({
-              userId: 'test-user-id',
-              amount: 1, // 1 SOL
-              status: 'pending',
+              ...mockTransaction,
+              timestamp: { toDate: () => mockTransaction.timestamp },
             }),
           },
         ],
       };
 
-      const mockRewardTransactions = {
-        docs: [
-          {
-            data: () => ({
-              userId: 'test-user-id',
-              amount: 5, // 5 SOL
-              type: 'reward',
-              status: 'completed',
-            }),
-          },
-        ],
-      };
+      const mockFirestore = jest.requireMock('../../config/firebase').db;
+      mockFirestore.get.mockImplementation((collection: string) => 
+        Promise.resolve(collection === 'wallets' ? mockQuerySnapshot : mockTransactionsSnapshot)
+      );
+    });
 
-      // Setup mocks for this specific test
-      (collection as jest.Mock).mockImplementation((_, collectionName) => {
-        if (collectionName === 'userChallenges') {
-          return {
-            where: jest.fn().mockReturnThis(),
-            get: jest.fn().mockResolvedValue(mockUserChallenges),
-          };
-        } else if (collectionName === 'rewards') {
-          return {
-            where: jest.fn().mockReturnThis(),
-            get: jest.fn().mockResolvedValue(mockPendingRewards),
-          };
-        } else if (collectionName === 'transactions') {
-          return {
-            where: jest.fn().mockReturnThis(),
-            get: jest.fn().mockResolvedValue(mockRewardTransactions),
-          };
-        }
-        return {
-          where: jest.fn().mockReturnThis(),
-          get: jest.fn().mockResolvedValue({ docs: [] }),
-        };
-      });
+    it('should return wallet stats for authenticated user', async () => {
+      const stats = await walletService.getWalletStats('test-user-id');
 
-      // Execute
-      const result = await walletService.getWalletStats();
-
-      // Verify
-      expect(solanaService.initializeWallet).toHaveBeenCalled();
-      expect(solanaService.getBalance).toHaveBeenCalled();
-      expect(result).toEqual({
-        totalStaked: 5, // 2 + 3
-        availableBalance: 10, // from solanaService.getBalance mock
-        pendingRewards: 1,
-        totalEarned: 5,
+      expect(stats).toEqual({
+        ...mockWalletStats,
+        recentTransactions: [mockTransaction],
       });
     });
 
-    it('should throw an error if user is not authenticated', async () => {
-      // Mock for this test
-      (authService.getCurrentUser as jest.Mock).mockResolvedValueOnce(null);
+    it('should throw error if user is not authenticated', async () => {
+      (auth as any).currentUser = null;
 
-      // Execute and verify
-      await expect(walletService.getWalletStats()).rejects.toThrow('Not authenticated');
+      await expect(walletService.getWalletStats('test-user-id')).rejects.toThrow('User must be authenticated');
     });
   });
 
   describe('getTransactions', () => {
-    it('should return user transactions', async () => {
-      // Mock transaction data
-      const mockTransactions = {
-        docs: [
-          {
-            id: 'tx1',
-            data: () => ({
-              userId: 'test-user-id',
-              type: 'stake',
-              amount: 1,
-              timestamp: { toDate: () => new Date('2023-01-01') },
-              status: 'completed',
-              challengeId: 'challenge-1',
-              txHash: 'hash1',
-            }),
-          },
-          {
-            id: 'tx2',
-            data: () => ({
-              userId: 'test-user-id',
-              type: 'reward',
-              amount: 2,
-              timestamp: { toDate: () => new Date('2023-01-02') },
-              status: 'completed',
-              challengeId: 'challenge-1',
-              txHash: 'hash2',
-            }),
-          },
-        ],
+    const mockTransactions = [mockTransaction];
+
+    beforeEach(() => {
+      const mockQuerySnapshot = {
+        docs: mockTransactions.map(tx => ({
+          id: tx.id,
+          data: () => ({
+            ...tx,
+            timestamp: { toDate: () => tx.timestamp },
+          }),
+        })),
       };
 
-      // Setup mocks for this specific test
-      (collection as jest.Mock).mockReturnValueOnce({
-        where: jest.fn().mockReturnThis(),
-        orderBy: jest.fn().mockReturnThis(),
-        get: jest.fn().mockResolvedValue(mockTransactions),
-      });
+      const mockFirestore = jest.requireMock('../../config/firebase').db;
+      mockFirestore.get.mockResolvedValue(mockQuerySnapshot);
+    });
+    it('should return transactions for authenticated user', async () => {
+      if (!auth.currentUser) {
+        throw new Error('User must be authenticated');
+      }
+      const transactions = await walletService.getTransactions({ limit: 10, cursor: '' });
 
-      // Execute
-      const result = await walletService.getTransactions();
-
-      // Verify
-      expect(authService.getCurrentUser).toHaveBeenCalled();
-      expect(result.length).toBe(2);
-      expect(result[0].id).toBe('tx1');
-      expect(result[0].type).toBe('stake');
-      expect(result[1].id).toBe('tx2');
-      expect(result[1].type).toBe('reward');
+      expect(transactions).toEqual(mockTransactions);
     });
 
-    it('should throw an error if user is not authenticated', async () => {
-      // Mock for this test
-      (authService.getCurrentUser as jest.Mock).mockResolvedValueOnce(null);
+    it('should throw error if user is not authenticated', async () => {
+      (auth as any).currentUser = null;
 
-      // Execute and verify
-      await expect(walletService.getTransactions()).rejects.toThrow('Not authenticated');
+      await expect(walletService.getTransactions({ limit: 10, cursor: '' })).rejects.toThrow('User must be authenticated');
+    });
+
+    it('should apply pagination correctly', async () => {
+      const mockFirestore = jest.requireMock('../../config/firebase').db;
+      await walletService.getTransactions({ limit: 10, cursor: 'test-cursor' });
+
+      expect(mockFirestore.limit).toHaveBeenCalledWith(10);
+      expect(mockFirestore.orderBy).toHaveBeenCalledWith('timestamp', 'desc');
     });
   });
 
   describe('withdrawFunds', () => {
-    it('should process a withdrawal successfully', async () => {
-      // Setup mocks
-      (collection as jest.Mock).mockReturnValueOnce({
-        add: jest.fn().mockResolvedValue({ id: 'withdrawal-tx-id' }),
-      });
+    const withdrawalAmount = 500;
 
-      // Mock the doc reference with proper update method
-      const mockDocRef = {
-        update: jest.fn().mockResolvedValue(undefined)
+    beforeEach(() => {
+      const mockWalletDoc = {
+        get: jest.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ balance: mockWalletStats.balance }),
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
       };
-      (doc as jest.Mock).mockReturnValueOnce(mockDocRef);
 
-      // Execute
-      const result = await walletService.withdrawFunds(5);
-
-      // Verify
-      expect(solanaService.initializeWallet).toHaveBeenCalled();
-      expect(solanaService.getBalance).toHaveBeenCalled();
-      expect(result).toEqual(expect.objectContaining({
-        id: 'withdrawal-tx-id',
-        type: 'withdrawal',
-        amount: 5,
-        status: 'completed',
-      }));
+      const mockFirestore = jest.requireMock('../../config/firebase').db;
+      mockFirestore.doc.mockReturnValue(mockWalletDoc);
+      mockFirestore.add.mockResolvedValue({ id: 'new-transaction-id' });
     });
 
-    it('should throw an error if balance is insufficient', async () => {
-      // Mock for this test
-      (solanaService.getBalance as jest.Mock).mockResolvedValueOnce(2);
+    it('should process withdrawal successfully', async () => {
+      const result = await walletService.withdrawFunds(withdrawalAmount);
 
-      // Execute and verify
-      await expect(walletService.withdrawFunds(5)).rejects.toThrow('Insufficient balance');
+      expect(result).toEqual({
+        success: true,
+        transactionId: 'new-transaction-id',
+      });
+
+      const mockFirestore = jest.requireMock('../../config/firebase').db;
+      expect(mockFirestore.update).toHaveBeenCalledWith({
+        balance: mockWalletStats.balance - withdrawalAmount,
+        totalSpent: expect.any(Number),
+      });
+
+      expect(mockFirestore.add).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: mockUser.uid,
+          amount: withdrawalAmount,
+          type: 'withdrawal',
+          status: 'completed',
+        })
+      );
+    });
+
+    it('should throw error if withdrawal amount exceeds balance', async () => {
+      const excessAmount = mockWalletStats.balance + 100;
+
+      await expect(walletService.withdrawFunds(excessAmount))
+        .rejects.toThrow('Insufficient funds');
+    });
+
+    it('should throw error if user is not authenticated', async () => {
+      (auth as any).currentUser = null;
+
+      await expect(walletService.withdrawFunds(withdrawalAmount))
+        .rejects.toThrow('User must be authenticated');
     });
   });
 

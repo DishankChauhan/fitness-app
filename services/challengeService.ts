@@ -1,32 +1,20 @@
-import {
-  db,
-  analytics,
-  crashlytics,
-  logAnalyticsEvent,
-  collection,
-  query,
-  where,
-  getDocs,
-  orderBy,
-  addDoc,
-  updateDoc,
-  doc,
-  DocumentData,
-  QueryDocumentSnapshot,
-  DocumentReference,
-  CollectionReference,
-  WriteBatch,
-  runTransaction,
-  Transaction,
-  writeBatch,
-  getDoc,
-} from '../config/firebase';
+import firestore from '@react-native-firebase/firestore';
+import crashlytics from '@react-native-firebase/crashlytics';
+import analytics from '@react-native-firebase/analytics';
 import { healthService } from './healthService';
 import * as authService from './authService';
 import { solanaService } from './solanaService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import firestore from '@react-native-firebase/firestore';
 import { UserProfile } from '../types/user';
+import {
+  Challenge,
+  UserChallenge,
+  ChallengeGroup,
+  CheckInResult,
+  ChallengeStatus,
+  ChallengeCategory,
+} from '../types/challenge';
+import { FirebaseFirestore } from '@firebase/firestore-types';
 
 // Constants
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -39,14 +27,6 @@ const STORAGE_KEYS = {
 
 export type ChallengeType = 'steps' | 'activeMinutes' | 'heartRate' | 'sleepHours';
 export type ChallengeVisibility = 'public' | 'private' | 'invite_only';
-export type ChallengeStatus = 'active' | 'completed' | 'failed';
-
-export interface UserChallenge extends Challenge {
-  prizePool: number;
-  userId: string;
-  progress: number;
-  displayName: string;
-}
 
 export interface CreateChallengeParams {
   title: string;
@@ -60,7 +40,7 @@ export interface CreateChallengeParams {
   groupId?: string | null;
 }
 
-export interface Challenge {
+export interface ChallengeData {
   prizePool: number;
   id: string;
   title: string;
@@ -112,9 +92,11 @@ export class ChallengeService {
 
   private handleError(error: Error, operation: string): void {
     console.error(`Error in ${operation}:`, error);
-    // Only record the error if crashlytics is available
-    if (crashlytics) {
-      crashlytics.recordError(error);
+    try {
+      crashlytics().recordError(error);
+    } catch (e) {
+      // Ignore crashlytics errors in development
+      console.debug('Crashlytics error:', e);
     }
     throw error;
   }
@@ -135,14 +117,14 @@ export class ChallengeService {
       const user = await authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
       await authService.updateUserTokens(user.id, tokens);
-      logAnalyticsEvent('tokens_updated', { newBalance: tokens });
+      await this.logAnalyticsEvent('tokens_updated', { newBalance: tokens });
     } catch (error) {
       this.handleError(error as Error, 'set_user_tokens');
       throw error;
     }
   }
 
-  private validateChallenge(challenge: Challenge): void {
+  private validateChallenge(challenge: ChallengeData): void {
     const now = new Date();
     const startDate = new Date(challenge.startDate);
     const endDate = new Date(challenge.endDate);
@@ -193,54 +175,50 @@ export class ChallengeService {
     }
   }
 
-  async getUserChallenges(): Promise<UserChallenge[]> {
+  async getUserChallenges(userId: string): Promise<UserChallenge[]> {
     try {
-      const user = await authService.getCurrentUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const userChallengesRef = query(
-        collection(db, 'userChallenges'),
-        where('userId', '==', user.id),
-        where('status', '==', 'active')
-      );
-
-      const snapshot = await getDocs(userChallengesRef);
-      return snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
+      const snapshot = await firestore()
+        .collection('userChallenges')
+        .where('userId', '==', userId)
+        .get();
+      
+      return snapshot.docs.map((doc) => {
         const data = doc.data();
         return {
           ...data,
           id: doc.id,
-          displayName: user.displayName || 'Anonymous'
+          startDate: data.startDate.toDate(),
+          endDate: data.endDate.toDate(),
+          lastCheckIn: data.lastCheckIn ? data.lastCheckIn.toDate() : null
         } as UserChallenge;
       });
     } catch (error) {
-      this.handleError(error as Error, 'get_user_challenges');
-      throw error;
+      console.error('Error fetching user challenges:', error);
+      return [];
     }
   }
 
-  async getAvailableChallenges(): Promise<Challenge[]> {
+  async getAvailableChallenges(): Promise<ChallengeData[]> {
     try {
       // Check cache first
       const cachedData = await AsyncStorage.getItem(STORAGE_KEYS.CHALLENGES_CACHE);
       if (cachedData) {
         const { data, timestamp } = JSON.parse(cachedData);
         if (Date.now() - timestamp < CACHE_TTL) {
-          return data as Challenge[];
+          return data as ChallengeData[];
         }
       }
-      const challengesRef = query(
-        collection(db, 'challenges'),
-        where('status', '==', 'active'),
-        where('endDate', '>', new Date().toISOString())
-      );
 
-      const snapshot = await getDocs(challengesRef);
+      const snapshot = await firestore()
+        .collection('challenges')
+        .where('status', '==', 'active')
+        .where('endDate', '>', firestore.Timestamp.fromDate(new Date()))
+        .get();
 
-      const challenges = snapshot.docs.map((doc: { data: () => any; id: any; }) => ({
+      const challenges = snapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id,
-      })) as Challenge[];
+      })) as ChallengeData[];
 
       // Update cache
       await AsyncStorage.setItem(STORAGE_KEYS.CHALLENGES_CACHE, JSON.stringify({
@@ -255,10 +233,11 @@ export class ChallengeService {
     }
   }
 
-  async getAllChallenges(): Promise<(Challenge | UserChallenge)[]> {
+  async getAllChallenges(): Promise<(ChallengeData | UserChallenge)[]> {
     try {
+      const userId = await this.ensureAuthenticated();
       const [userChallenges, availableChallenges] = await Promise.all([
-        this.getUserChallenges(),
+        this.getUserChallenges(userId),
         this.getAvailableChallenges(),
       ]);
 
@@ -276,26 +255,27 @@ export class ChallengeService {
 
   private async updateAllChallengesProgress(): Promise<void> {
     try {
-      const userChallenges = await this.getUserChallenges();
-      const batch = writeBatch(db);
-      const now = new Date();
+      const userId = await this.ensureAuthenticated();
+      const userChallenges = await this.getUserChallenges(userId);
+      const batch = firestore().batch();
+      const now = firestore.Timestamp.fromDate(new Date());
 
       for (const challenge of userChallenges) {
         if (challenge.status !== 'active') continue;
-        if (new Date(challenge.endDate) <= now) {
+        if (now.toMillis() > challenge.endDate.toMillis()) {
           // Challenge has ended, mark for completion check
           await this.checkChallengeCompletion(challenge.id);
           continue;
         }
 
         const progress = await this.getChallengeProgress(challenge.type, challenge.goal);
-        const ref = doc(db, 'userChallenges', challenge.id);
+        const ref = firestore().collection('userChallenges').doc(challenge.id);
         batch.update(ref, { progress });
       }
 
       await batch.commit();
       await AsyncStorage.setItem(STORAGE_KEYS.LAST_PROGRESS_UPDATE, Date.now().toString());
-      logAnalyticsEvent('challenges_progress_updated');
+      await this.logAnalyticsEvent('challenges_progress_updated');
     } catch (error) {
       this.handleError(error as Error, 'update_all_challenges_progress');
     }
@@ -310,7 +290,7 @@ export class ChallengeService {
       const challengeDoc = await this.challengesCollection.doc(challengeId).get();
       if (!challengeDoc.exists) throw new Error('Challenge not found');
 
-      const challenge = { id: challengeDoc.id, ...challengeDoc.data() } as Challenge;
+      const challenge = { id: challengeDoc.id, ...challengeDoc.data() } as ChallengeData;
       
       // Check if user is already a participant
       if (challenge.participants.includes(user.id)) {
@@ -345,7 +325,7 @@ export class ChallengeService {
       await this.setUserTokens(userTokens - challenge.stake);
 
       // Log event
-      logAnalyticsEvent('challenge_joined', {
+      await this.logAnalyticsEvent('challenge_joined', {
         challenge_id: challengeId,
         stake_amount: challenge.stake
       });
@@ -360,10 +340,10 @@ export class ChallengeService {
       const user = await authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
 
-      const challengeRef = doc(db, 'challenges', challengeId);
-      const userChallengeRef = doc(db, 'userChallenges', challengeId);
+      const challengeRef = firestore().collection('challenges').doc(challengeId);
+      const userChallengeRef = firestore().collection('userChallenges').doc(challengeId);
 
-      await runTransaction(db, async (transaction: Transaction) => {
+      await firestore().runTransaction(async (transaction) => {
         const [challengeDoc, userChallengeDoc] = await Promise.all([
           transaction.get(challengeRef),
           transaction.get(userChallengeRef)
@@ -373,7 +353,7 @@ export class ChallengeService {
           throw new Error('Challenge not found');
         }
 
-        const challenge = challengeDoc.data() as Challenge;
+        const challenge = challengeDoc.data() as ChallengeData;
         const userChallenge = userChallengeDoc.data() as UserChallenge;
 
         if (userChallenge.userId !== user.id) {
@@ -398,7 +378,7 @@ export class ChallengeService {
         await this.setUserTokens(userTokens + challenge.stake);
       });
 
-      logAnalyticsEvent('challenge_left', { challengeId });
+      await this.logAnalyticsEvent('challenge_left', { challengeId });
     } catch (error) {
       this.handleError(error as Error, 'leave_challenge');
       throw error;
@@ -414,7 +394,7 @@ export class ChallengeService {
       const challengeDoc = await this.challengesCollection.doc(challengeId).get();
       if (!challengeDoc.exists) throw new Error('Challenge not found');
 
-      const challenge = { id: challengeDoc.id, ...challengeDoc.data() } as Challenge;
+      const challenge = { id: challengeDoc.id, ...challengeDoc.data() } as ChallengeData;
       
       // Ensure user is a participant
       if (!challenge.participants.includes(user.id)) {
@@ -456,7 +436,7 @@ export class ChallengeService {
         await this.setUserTokens(userTokens + reward);
         
         // Log event
-        logAnalyticsEvent('challenge_completed', {
+        await this.logAnalyticsEvent('challenge_completed', {
           challenge_id: challengeId,
           reward_amount: reward
         });
@@ -469,24 +449,34 @@ export class ChallengeService {
 
   async getUserChallenge(challengeId: string, userId: string): Promise<UserChallenge | null> {
     try {
-      const userChallengeRef = doc(db, 'userChallenges', `${userId}_${challengeId}`);
-      const userChallengeDoc = await getDoc(userChallengeRef);
+      const userChallengeDoc = await firestore()
+        .collection('userChallenges')
+        .doc(`${userId}_${challengeId}`)
+        .get();
       
-      if (!userChallengeDoc.exists()) {
+      if (!userChallengeDoc.exists) {
+        return null;
+      }
+
+      const data = userChallengeDoc.data();
+      if (!data) {
         return null;
       }
 
       return {
         id: userChallengeDoc.id,
-        ...userChallengeDoc.data() as Omit<UserChallenge, 'id'>
-      };
+        ...data,
+        startDate: data.startDate?.toDate() || new Date(),
+        endDate: data.endDate?.toDate() || new Date(),
+        lastCheckIn: data.lastCheckIn?.toDate() || null
+      } as UserChallenge;
     } catch (error) {
       console.error('Error getting user challenge:', error);
       throw error;
     }
   }
 
-  async createChallenge(params: CreateChallengeParams): Promise<Challenge> {
+  async createChallenge(params: CreateChallengeParams): Promise<ChallengeData> {
     try {
       const user = await authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
@@ -495,7 +485,7 @@ export class ChallengeService {
       await solanaService.initializeWallet();
       
       // Create document in Firestore first
-      const challengeData: Omit<Challenge, 'id'> = {
+      const challengeData: Omit<ChallengeData, 'id'> = {
         title: params.title,
         description: params.description,
         type: params.type,
@@ -528,7 +518,7 @@ export class ChallengeService {
       });
 
       // Log event
-      logAnalyticsEvent('challenge_created', {
+      await this.logAnalyticsEvent('challenge_created', {
         challenge_id: challengeId,
         challenge_type: params.type,
         stake_amount: params.stake,
@@ -539,14 +529,14 @@ export class ChallengeService {
         ...challengeData,
         id: challengeId,
         solanaAddress
-      } as Challenge;
+      } as ChallengeData;
     } catch (error) {
       this.handleError(error as Error, 'createChallenge');
       throw error;
     }
   }
 
-  async getChallenge(challengeId: string): Promise<Challenge | null> {
+  async getChallenge(challengeId: string): Promise<ChallengeData | null> {
     const doc = await this.challengesCollection.doc(challengeId).get();
     if (!doc.exists) {
       return null;
@@ -554,11 +544,11 @@ export class ChallengeService {
 
     return {
       id: doc.id,
-      ...doc.data() as Omit<Challenge, 'id'>
+      ...doc.data() as Omit<ChallengeData, 'id'>
     };
   }
 
-  async updateChallenge(challengeId: string, updates: Partial<Omit<Challenge, 'id' | 'createdBy' | 'createdAt'>>): Promise<void> {
+  async updateChallenge(challengeId: string, updates: Partial<Omit<ChallengeData, 'id' | 'createdBy' | 'createdAt'>>): Promise<void> {
     const currentUser = await authService.getCurrentUser();
     if (!currentUser) {
       throw new Error('User not authenticated');
@@ -579,7 +569,7 @@ export class ChallengeService {
     });
   }
 
-  async getPublicChallenges(limit: number = 10): Promise<Challenge[]> {
+  async getPublicChallenges(limit: number = 10): Promise<ChallengeData[]> {
     const snapshot = await this.challengesCollection
       .where('visibility', '==', 'public')
       .where('status', '==', 'active')
@@ -589,7 +579,7 @@ export class ChallengeService {
 
     return snapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data() as Omit<Challenge, 'id'>
+      ...doc.data() as Omit<ChallengeData, 'id'>
     }));
   }
 
@@ -600,6 +590,252 @@ export class ChallengeService {
     }
     this.challengeListeners.forEach(unsubscribe => unsubscribe());
     this.challengeListeners.clear();
+  }
+
+  private async ensureAuthenticated(): Promise<string> {
+    const user = await authService.getCurrentUser();
+    if (!user) {
+      throw new Error('User must be authenticated');
+    }
+    return user.id;
+  }
+
+  async getChallenges(category?: ChallengeCategory): Promise<ChallengeData[]> {
+    try {
+      let query = firestore().collection('challenges').where('endDate', '>', new Date());
+
+      if (category) {
+        query = query.where('category', '==', category);
+      }
+
+      const snapshot = await query.get();
+      return snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt.toDate(),
+          startDate: data.startDate.toDate(),
+          endDate: data.endDate.toDate()
+        } as ChallengeData;
+      });
+    } catch (error) {
+      console.error('Error fetching challenges:', error);
+      throw error;
+    }
+  }
+
+  async checkIn(userChallengeId: string): Promise<CheckInResult> {
+    const userId = await this.ensureAuthenticated();
+
+    try {
+      const userChallengeDoc = await firestore().collection('userChallenges').doc(userChallengeId).get();
+      
+      if (!userChallengeDoc.exists) {
+        throw new Error('Challenge participation not found');
+      }
+
+      const userChallenge = userChallengeDoc.data() as UserChallenge;
+
+      if (userChallenge.userId !== userId) {
+        throw new Error('Not authorized to check in for this challenge');
+      }
+
+      if (userChallenge.status !== 'active') {
+        throw new Error('Challenge is not active');
+      }
+
+      const now = firestore.Timestamp.fromDate(new Date());
+      if (now.toMillis() > userChallenge.endDate.toMillis()) {
+        throw new Error('Challenge has ended');
+      }
+
+      // Calculate progress
+      const totalDays = Math.ceil(
+        (userChallenge.endDate.toMillis() - userChallenge.startDate.toMillis()) / (1000 * 60 * 60 * 24)
+      );
+      const newProgress = Math.min(100, Math.round((userChallenge.progress || 0) + (100 / totalDays)));
+
+      // Update user challenge
+      await userChallengeDoc.ref.update({
+        lastCheckIn: now,
+        progress: newProgress,
+      });
+
+      return {
+        success: true,
+        message: 'Check-in successful',
+        progress: newProgress,
+      };
+    } catch (error) {
+      console.error('Error checking in:', error);
+      throw error;
+    }
+  }
+
+  async createGroupChallenge(challenge: Omit<ChallengeData, 'id'>, group: Omit<ChallengeGroup, 'id' | 'challengeId' | 'status'>): Promise<{ challengeId: string; groupId: string }> {
+    const userId = await this.ensureAuthenticated();
+
+    try {
+      // Create the challenge
+      const challengeRef = await firestore().collection('challenges').add({
+        ...challenge,
+        creatorId: userId,
+        type: 'group',
+        createdAt: new Date(),
+      });
+
+      // Create the group
+      const groupRef = await firestore().collection('challengeGroups').add({
+        ...group,
+        challengeId: challengeRef.id,
+        creatorId: userId,
+        participants: [userId],
+        createdAt: new Date(),
+        status: 'pending',
+      });
+
+      return {
+        challengeId: challengeRef.id,
+        groupId: groupRef.id,
+      };
+    } catch (error) {
+      console.error('Error creating group challenge:', error);
+      throw error;
+    }
+  }
+
+  async joinGroupChallenge(groupId: string): Promise<{ success: boolean; userChallengeId: string }> {
+    const userId = await this.ensureAuthenticated();
+
+    try {
+      const groupDoc = await firestore().collection('challengeGroups').doc(groupId).get();
+      if (!groupDoc.exists) {
+        throw new Error('Group not found');
+      }
+
+      const group = groupDoc.data() as ChallengeGroup;
+      
+      if (group.participants.includes(userId)) {
+        throw new Error('Already a member of this group');
+      }
+
+      if (group.participants.length >= group.maxParticipants) {
+        throw new Error('Group is full');
+      }
+
+      const challengeDoc = await firestore().collection('challenges').doc(group.challengeId).get();
+      if (!challengeDoc.exists) {
+        throw new Error('Challenge not found');
+      }
+
+      const challenge = challengeDoc.data() as ChallengeData;
+
+      // Update group participants
+      await groupDoc.ref.update({
+        participants: [...group.participants, userId],
+      });
+
+      // Create user challenge
+      const userChallenge = {
+        userId,
+        type: challenge.type,
+        goal: challenge.goal,
+        progress: 0,
+        displayName: challenge.title,
+        status: 'active' as ChallengeStatus,
+        startDate: firestore.Timestamp.fromDate(new Date(challenge.startDate)),
+        endDate: firestore.Timestamp.fromDate(new Date(challenge.endDate)),
+        lastCheckIn: null,
+        stake: challenge.stake,
+        groupId,
+        isGroupChallenge: true,
+      };
+
+      const userChallengeRef = await firestore().collection('userChallenges').add(userChallenge);
+
+      return {
+        success: true,
+        userChallengeId: userChallengeRef.id,
+      };
+    } catch (error) {
+      console.error('Error joining group challenge:', error);
+      throw error;
+    }
+  }
+
+  async createUserChallenge(challenge: Omit<UserChallenge, 'id'>): Promise<UserChallenge> {
+    try {
+      const docRef = await firestore().collection('userChallenges').add(challenge);
+      return {
+        ...challenge,
+        id: docRef.id,
+      };
+    } catch (error) {
+      console.error('Error creating user challenge:', error);
+      throw error;
+    }
+  }
+
+  async updateUserChallenge(challengeId: string, data: Partial<UserChallenge>): Promise<void> {
+    try {
+      await firestore().collection('userChallenges').doc(challengeId).update(data);
+    } catch (error) {
+      console.error('Error updating user challenge:', error);
+      throw error;
+    }
+  }
+
+  async getChallengeGroups(): Promise<ChallengeGroup[]> {
+    try {
+      const snapshot = await firestore()
+        .collection('challengeGroups')
+        .get();
+      
+      return snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt.toDate(),
+          updatedAt: data.updatedAt.toDate()
+        } as ChallengeGroup;
+      });
+    } catch (error) {
+      console.error('Error fetching challenge groups:', error);
+      return [];
+    }
+  }
+
+  async createChallengeGroup(group: Omit<ChallengeGroup, 'id'>): Promise<ChallengeGroup> {
+    try {
+      const now = firestore.Timestamp.now();
+      const docRef = await firestore().collection('challengeGroups').add({
+        ...group,
+        createdAt: now,
+        updatedAt: now
+      });
+
+      const data = {
+        ...group,
+        id: docRef.id,
+        createdAt: now.toDate().toISOString(),
+        updatedAt: now.toDate().toISOString()
+      };
+
+      return data;
+    } catch (error) {
+      console.error('Error creating challenge group:', error);
+      throw error;
+    }
+  }
+
+  private async logAnalyticsEvent(eventName: string, params?: Record<string, any>) {
+    try {
+      await analytics().logEvent(eventName, params);
+    } catch (error) {
+      console.error('Error logging analytics event:', error);
+    }
   }
 }
 

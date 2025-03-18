@@ -137,7 +137,7 @@ describe('FitbitService', () => {
         json: () => Promise.resolve(mockResponse),
       });
 
-      const result = await fitbitService.getHealthData();
+      const result = await fitbitService.getHealthData('2024-03-17', '2024-03-17');
 
       expect(result).toEqual(mockResponse);
       expect(fetch).toHaveBeenCalledWith(
@@ -156,7 +156,7 @@ describe('FitbitService', () => {
         status: 401,
       });
 
-      await expect(fitbitService.getHealthData()).rejects.toThrow('Fitbit API error: Unauthorized');
+      await expect(fitbitService.getHealthData('2024-03-17', '2024-03-17')).rejects.toThrow('Fitbit API error: Unauthorized');
       expect(crashlytics().recordError).toHaveBeenCalled();
     });
   });

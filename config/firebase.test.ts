@@ -53,22 +53,62 @@ export const mockFirebaseUser: FirebaseAuthTypes.User = {
   },
   providerData: [],
   providerId: 'firebase',
-  refreshToken: 'test-refresh-token',
-  tenantId: null,
   phoneNumber: null,
   photoURL: null,
-  getIdToken: jest.fn().mockResolvedValue('test-id-token'),
-  getIdTokenResult: jest.fn().mockResolvedValue({
+  getIdToken: jest.fn(async () => 'test-id-token') as jest.MockedFunction<(forceRefresh?: boolean) => Promise<string>>,
+  getIdTokenResult: jest.fn(async () => ({
     token: 'test-id-token',
     authTime: new Date().toISOString(),
     issuedAtTime: new Date().toISOString(),
     expirationTime: new Date().toISOString(),
     signInProvider: 'password',
     claims: {}
-  }),
-  reload: jest.fn().mockResolvedValue(undefined),
-  delete: jest.fn().mockResolvedValue(undefined),
-  toJSON: jest.fn().mockReturnValue({})
+  })) as jest.MockedFunction<(forceRefresh?: boolean) => Promise<FirebaseAuthTypes.IdTokenResult>>,
+  reload: jest.fn(async () => {}) as jest.MockedFunction<() => Promise<void>>,
+  delete: jest.fn(async () => {}) as jest.MockedFunction<() => Promise<void>>,
+  toJSON: jest.fn(() => ({})) as jest.MockedFunction<() => object>,
+  // Additional required methods
+  multiFactor: {
+    enrolledFactors: []
+  },
+  linkWithCredential: jest.fn(async (credential) => ({
+    user: mockFirebaseUser,
+    credential: credential,
+    operationType: 'link',
+    additionalUserInfo: undefined
+  })) as unknown as jest.MockedFunction<(credential: FirebaseAuthTypes.AuthCredential) => Promise<FirebaseAuthTypes.UserCredential>>,
+  linkWithPopup: jest.fn(async (provider) => ({
+    user: mockFirebaseUser,
+    credential: null,
+    operationType: 'link',
+    additionalUserInfo: undefined
+  })) as unknown as jest.MockedFunction<(provider: FirebaseAuthTypes.AuthProvider) => Promise<FirebaseAuthTypes.UserCredential>>,
+  linkWithRedirect: jest.fn(async (provider) => ({
+    user: mockFirebaseUser,
+    credential: null,
+    operationType: 'link',
+    additionalUserInfo: undefined
+  })) as unknown as jest.MockedFunction<(provider: FirebaseAuthTypes.AuthProvider) => Promise<FirebaseAuthTypes.UserCredential>>,
+  reauthenticateWithCredential: jest.fn(async (credential) => ({
+    user: mockFirebaseUser,
+    credential: credential,
+    operationType: 'reauthenticate',
+    additionalUserInfo: undefined
+  })) as unknown as jest.MockedFunction<(credential: FirebaseAuthTypes.AuthCredential) => Promise<FirebaseAuthTypes.UserCredential>>,
+  reauthenticateWithPopup: jest.fn(async (provider) => ({
+    user: mockFirebaseUser,
+    credential: null,
+    operationType: 'reauthenticate',
+    additionalUserInfo: undefined
+  })) as unknown as jest.MockedFunction<(provider: FirebaseAuthTypes.AuthProvider) => Promise<FirebaseAuthTypes.UserCredential>>,
+  reauthenticateWithRedirect: jest.fn(async () => {}) as jest.MockedFunction<(provider: FirebaseAuthTypes.AuthProvider) => Promise<void>>,
+  sendEmailVerification: jest.fn(async () => {}) as jest.MockedFunction<() => Promise<void>>,
+  unlink: jest.fn(async () => mockFirebaseUser) as jest.MockedFunction<(providerId: string) => Promise<FirebaseAuthTypes.User>>,
+  updateEmail: jest.fn(async () => {}) as jest.MockedFunction<(email: string) => Promise<void>>,
+  updatePassword: jest.fn(async () => {}) as jest.MockedFunction<(password: string) => Promise<void>>,
+  updatePhoneNumber: jest.fn(async () => {}) as jest.MockedFunction<(phoneCredential: FirebaseAuthTypes.AuthCredential) => Promise<void>>,
+  updateProfile: jest.fn(async () => {}) as jest.MockedFunction<(profile: { displayName?: string; photoURL?: string }) => Promise<void>>,
+  verifyBeforeUpdateEmail: jest.fn(async () => {}) as jest.MockedFunction<(newEmail: string) => Promise<void>>
 };
 
 export const mockUserDoc = {

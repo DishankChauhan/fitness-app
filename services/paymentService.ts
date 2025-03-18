@@ -12,12 +12,20 @@ import { auth, db, crashlytics, logAnalyticsEvent } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { retryWithBackoff } from '../utils/retry';
 import firestore from '@react-native-firebase/firestore';
+import { env } from '../config/env';
+import {
+  AppError,
+  AuthenticationError,
+  InsufficientFundsError,
+  PaymentDeclinedError,
+  PaymentMethodError,
+  NetworkError,
+} from '../types/errors';
 
-// Constants
-const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY;
-const API_URL = process.env.API_URL;
-const API_TIMEOUT = parseInt(process.env.API_TIMEOUT || '30000');
-const MAX_RETRIES = 3;
+// Constants from environment
+const API_URL = env.api.url;
+const API_TIMEOUT = env.api.timeout;
+const MAX_RETRIES = env.app.maxRetries;
 
 export interface TokenPackage {
   id: string;
@@ -27,16 +35,11 @@ export interface TokenPackage {
   popular?: boolean;
 }
 
-export const TOKEN_PACKAGES: TokenPackage[] = [
-  { id: 'basic', tokens: 100, price: 4.99, description: 'Basic Package' },
-  { id: 'popular', tokens: 500, price: 19.99, description: 'Popular Package', popular: true },
-  { id: 'premium', tokens: 1000, price: 34.99, description: 'Premium Package' }
-];
-
-interface PaymentError extends Error {
-  code?: string;
+interface StripeError {
+  type: string;
+  code: string;
+  message: string;
   declineCode?: string;
-  stripeErrorCode?: string;
 }
 
 interface PaymentIntentResponse {
@@ -69,6 +72,12 @@ interface StripePaymentMethod {
   };
 }
 
+export const TOKEN_PACKAGES: TokenPackage[] = [
+  { id: 'basic', tokens: 100, price: 4.99, description: 'Basic Package' },
+  { id: 'popular', tokens: 500, price: 19.99, description: 'Popular Package', popular: true },
+  { id: 'premium', tokens: 1000, price: 34.99, description: 'Premium Package' }
+];
+
 class PaymentService {
   private initialized = false;
 
@@ -78,18 +87,22 @@ class PaymentService {
 
   private async initialize(): Promise<void> {
     try {
-      if (!STRIPE_PUBLISHABLE_KEY) {
+      const { publishableKey, merchantId } = env.stripe;
+      
+      if (!publishableKey) {
         throw new Error('Stripe publishable key is missing');
       }
 
       await initStripe({
-        publishableKey: STRIPE_PUBLISHABLE_KEY,
-        merchantIdentifier: Platform.OS === 'ios' ? 'merchant.com.accountability' : undefined,
-        urlScheme: 'your-url-scheme',
+        publishableKey,
+        merchantIdentifier: merchantId,
+        urlScheme: 'accountability-app',
       });
 
       this.initialized = true;
-      logAnalyticsEvent('payment_service_initialized');
+      if (env.features.analytics) {
+        logAnalyticsEvent('payment_service_initialized');
+      }
     } catch (error) {
       this.handleError(error as Error, 'initialize');
       throw error;
@@ -101,15 +114,42 @@ class PaymentService {
       await this.initialize();
     }
   }
-  private handleError(error: PaymentError, operation: string): void {
-    if (crashlytics) {
-      crashlytics.recordError(error);
+
+  private handleError(error: Error, operation: string): void {
+    if (error instanceof AppError) {
+      if (crashlytics && env.features.crashlytics) {
+        crashlytics.recordError(error);
+        const attributes: Record<string, string> = {
+          errorCode: error.code,
+          operation,
+        };
+        if (error instanceof PaymentMethodError && error.stripeError) {
+          if (error.stripeError.type) attributes.type = error.stripeError.type;
+          if (error.stripeError.code) attributes.code = error.stripeError.code;
+          if (error.stripeError.declineCode) attributes.declineCode = error.stripeError.declineCode;
+        }
+        crashlytics.setAttributes(attributes);
+      }
+      if (env.features.analytics) {
+        logAnalyticsEvent('error_occurred', {
+          error_type: error.name,
+          error_code: error.code,
+          operation,
+          message: error.message,
+        });
+      }
+    } else {
+      // Unknown error
+      if (crashlytics && env.features.crashlytics) {
+        crashlytics.recordError(error);
+      }
+      if (env.features.analytics) {
+        logAnalyticsEvent('unknown_error', {
+          operation,
+          message: error.message,
+        });
+      }
     }
-    logAnalyticsEvent('payment_error', {
-      operation,
-      errorMessage: error.message,
-      errorCode: error.code || error.stripeErrorCode || error.declineCode,
-    });
   }
 
   async purchaseTokens(
@@ -122,7 +162,7 @@ class PaymentService {
       
       const user = auth.currentUser;
       if (!user) {
-        throw new Error('User must be authenticated to purchase tokens');
+        throw new AuthenticationError();
       }
 
       // Create payment intent on backend
@@ -135,7 +175,11 @@ class PaymentService {
       const { error: confirmError } = await confirmPayment(paymentIntent.clientSecret);
 
       if (confirmError) {
-        throw confirmError;
+        const stripeError = confirmError as unknown as StripeError;
+        if (stripeError.type === 'card_error' && stripeError.code === 'card_declined') {
+          throw new PaymentDeclinedError(stripeError.declineCode || 'unknown');
+        }
+        throw new PaymentMethodError(stripeError.message, stripeError.code || 'unknown');
       }
 
       // Record transaction in Firestore
@@ -157,20 +201,28 @@ class PaymentService {
       });
 
       // Log successful purchase
-      logAnalyticsEvent('token_purchase_success', {
-        package_id: tokenPackage.id,
-        amount: tokenPackage.price,
-        tokens: tokenPackage.tokens,
-      });
+      if (env.features.analytics) {
+        logAnalyticsEvent('token_purchase_success', {
+          package_id: tokenPackage.id,
+          amount: tokenPackage.price,
+          tokens: tokenPackage.tokens,
+        });
+      }
 
       return { success: true, transactionId: transactionRef.id };
     } catch (error) {
-      const paymentError = error as PaymentError;
-      this.handleError(paymentError, 'purchaseTokens');
+      this.handleError(error as Error, 'purchaseTokens');
+      
+      if (error instanceof AppError) {
+        return {
+          success: false,
+          error: error.userMessage,
+        };
+      }
       
       return {
         success: false,
-        error: paymentError.message,
+        error: 'An unexpected error occurred. Please try again later.',
       };
     }
   }
@@ -179,25 +231,41 @@ class PaymentService {
     amount: number,
     paymentMethodId: string
   ): Promise<PaymentIntentResponse> {
-    const response = await fetch(`${API_URL}/create-payment-intent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`,
-      },
-      body: JSON.stringify({
-        amount: Math.round(amount * 100), // Convert to cents
-        paymentMethodId,
-        currency: 'usd',
-      }),
-    });
+    try {
+      const response = await fetch(`${API_URL}/create-payment-intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`,
+        },
+        body: JSON.stringify({
+          amount: Math.round(amount * 100), // Convert to cents
+          paymentMethodId,
+          currency: 'usd',
+        }),
+      });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to create payment intent');
+      if (!response.ok) {
+        const error = await response.json();
+        throw new PaymentMethodError(
+          error.message || 'Failed to create payment intent',
+          'PAYMENT_INTENT_ERROR'
+        );
+      }
+
+      return response.json();
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      if (error instanceof TypeError) {
+        throw new NetworkError();
+      }
+      throw new PaymentMethodError(
+        'Failed to create payment intent',
+        'UNKNOWN_ERROR'
+      );
     }
-
-    return response.json();
   }
 
   async getPaymentMethods(): Promise<StripePaymentMethod[]> {

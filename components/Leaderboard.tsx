@@ -11,6 +11,7 @@ import { useColorScheme } from '../app/hooks/useColorScheme';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { challengeService } from '../services/challengeService';
 import * as authService from '../services/authService';
+import { socialService } from '../services/socialService';
 
 const AnimatedThemedView = Animated.createAnimatedComponent(ThemedView);
 
@@ -98,21 +99,16 @@ export function Leaderboard({
           leaderboardData = participantsResults.filter(Boolean) as LeaderboardParticipant[];
         }
       } else {
-        // Load global leaderboard
-        // This would typically come from a dedicated leaderboard API
-        // For now, we'll use mock data
-        leaderboardData = [
-          { id: '1', userId: '1', displayName: 'Runner1', progress: 95, score: 9500 },
-          { id: '2', userId: '2', displayName: 'StepMaster', progress: 87, score: 8700 },
-          { id: '3', userId: '3', displayName: 'FitnessFan', progress: 82, score: 8200 },
-          { id: '4', userId: '4', displayName: 'HealthyHabit', progress: 76, score: 7600 },
-          { id: '5', userId: '5', displayName: 'WalkingPro', progress: 71, score: 7100 },
-          { id: '6', userId: '6', displayName: 'JoggerJoe', progress: 68, score: 6800 },
-          { id: '7', userId: '7', displayName: 'ActiveAlex', progress: 65, score: 6500 },
-          { id: '8', userId: '8', displayName: 'EnergeticEmma', progress: 62, score: 6200 },
-          { id: '9', userId: '9', displayName: 'MotivatedMax', progress: 58, score: 5800 },
-          { id: '10', userId: '10', displayName: 'DeterminedDan', progress: 54, score: 5400 },
-        ];
+        // Load global leaderboard from social service
+        const globalLeaderboard = await socialService.getLeaderboard(limit);
+        leaderboardData = globalLeaderboard.map(entry => ({
+          id: entry.id,
+          userId: entry.id,
+          displayName: entry.displayName,
+          photoURL: entry.photoURL,
+          progress: entry.stats.successRate,
+          score: entry.stats.totalTokens,
+        }));
       }
       
       // Sort by progress (or score) and assign ranks

@@ -8,17 +8,21 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/app/hooks/useColorScheme';
 import { useAuth } from '@/app/hooks/useAuth';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import * as socialService from '@/services/socialService';
+import { socialService } from '@/services/socialService';
+import { achievementService } from '@/services/achievementService';
+import type { Achievement } from '@/types/achievement';
 /// <reference path="../../types/sf-symbols.d.ts" />
 
 interface LeaderboardEntry {
-  userId: string;
+  id: string;
   displayName: string;
-  rank: number;
-  score: number;
-  completedChallenges?: number;
-  activeChallenges?: number;
-  badges?: string[];
+  photoURL?: string;
+  stats: {
+    completedChallenges: number;
+    totalTokens: number;
+    successRate: number;
+  };
+  badges?: Achievement[];
 }
 
 const AnimatedThemedView = Animated.createAnimatedComponent(ThemedView);
@@ -42,16 +46,18 @@ export default function LeaderboardScreen() {
       // Get basic leaderboard data from the socialService
       const leaderboardData = await socialService.getLeaderboard();
       
-      // Enhance the leaderboard data with badges and challenges
-      // In a real app, you might have a separate API call for this detailed data
-      const enhancedData: LeaderboardEntry[] = leaderboardData.map(entry => ({
-        ...entry,
-        completedChallenges: Math.floor(Math.random() * 10), // This would come from user stats in a real app
-        activeChallenges: Math.floor(Math.random() * 5),
-        badges: getBadgesForUser(entry.userId),
-      }));
+      // Enhance the leaderboard data with badges from achievement service
+      const enhancedData = await Promise.all(
+        leaderboardData.map(async (entry) => {
+          const badges = await achievementService.getUserAchievements(entry.id);
+          return {
+            ...entry,
+            badges,
+          };
+        })
+      );
       
-      setLeaderboard(enhancedData);
+      setLeaderboard(enhancedData as LeaderboardEntry[]);
     } catch (err) {
       console.error('Error loading leaderboard:', err);
       setError((err as Error).message);
@@ -59,15 +65,6 @@ export default function LeaderboardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  // Mock function to generate badges - in a real app, this would be fetched from the API
-  const getBadgesForUser = (userId: string): string[] => {
-    // This is just for demonstration - would be replaced with real data
-    const allBadges = ['early_bird', 'challenger', 'consistent', 'social'];
-    const numBadges = Math.floor(Math.random() * 3) + 1; // 1-3 badges
-    const shuffled = [...allBadges].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, numBadges);
   };
 
   useEffect(() => {
@@ -79,8 +76,8 @@ export default function LeaderboardScreen() {
     loadLeaderboard();
   };
 
-  const getBadgeIcon = (badge: string): string => {
-    switch (badge) {
+  const getBadgeIcon = (badge: Achievement): string => {
+    switch (badge.id) {
       case 'early_bird':
         return 'sun.max.fill';
       case 'challenger':
@@ -89,13 +86,21 @@ export default function LeaderboardScreen() {
         return 'checkmark.seal.fill';
       case 'social':
         return 'person.2.fill';
+      case 'overachiever':
+        return 'star.fill';
+      case 'elite':
+        return 'crown.fill';
+      case 'mentor':
+        return 'person.3.fill';
+      case 'innovator':
+        return 'lightbulb.fill';
       default:
         return 'star.fill';
     }
   };
 
   const renderLeaderboardItem = ({ item, index }: { item: LeaderboardEntry; index: number }) => {
-    const isCurrentUser = item.userId === user?.id;
+    const isCurrentUser = item.id === user?.id;
     const rankColor = index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : index === 2 ? '#CD7F32' : colors.text;
 
     return (
@@ -108,7 +113,7 @@ export default function LeaderboardScreen() {
       >
         <ThemedView style={styles.rankContainer}>
           <ThemedText style={[styles.rank, { color: rankColor }]}>
-            #{item.rank}
+            #{index + 1}
           </ThemedText>
         </ThemedView>
 
@@ -130,10 +135,10 @@ export default function LeaderboardScreen() {
 
         <ThemedView style={styles.stats}>
           <ThemedText type="defaultSemiBold" style={styles.score}>
-            {item.score}
+            {item.stats.totalTokens}
           </ThemedText>
           <ThemedText style={styles.challenges}>
-            {item.completedChallenges} completed
+            {item.stats.completedChallenges} completed
           </ThemedText>
         </ThemedView>
       </AnimatedThemedView>
@@ -201,7 +206,7 @@ export default function LeaderboardScreen() {
       <FlatList
         data={leaderboard}
         renderItem={renderLeaderboardItem}
-        keyExtractor={item => item.userId}
+        keyExtractor={item => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         refreshControl={

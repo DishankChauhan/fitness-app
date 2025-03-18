@@ -1,20 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, ActivityIndicator, ViewStyle } from 'react-native';
+import { StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, ActivityIndicator, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
 import { Button } from '@/components/Button';
-import { IconSymbol } from '@/components/ui/IconSymbol';
+import { IconSymbol, type SFSymbols6_0 } from '@/components/ui/IconSymbol';
 import { ErrorView } from '@/components/ErrorView';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/app/hooks/useColorScheme';
 import { useAuth } from '@/app/hooks/useAuth';
-import { Challenge, UserChallenge } from '@/types/challenge';
+import { Challenge } from '@/types/challenge';
 import { challengeService } from '@/services/challengeService';
 import * as walletService from '@/services/walletService';
 import * as authService from '@/services/authService';
+import { BadgeType, Achievement, AchievementMetadata } from '@/types/achievement';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import auth from '@react-native-firebase/auth';
 
 const AnimatedThemedView = Animated.createAnimatedComponent(ThemedView);
 
@@ -24,51 +26,37 @@ interface UserStats {
   activeChallenges: number;
   totalTokens: number;
   successRate: number;
-  achievements: {
-    id: string;
-    title: string;
-    description: string;
-    icon: string;
-    unlockedAt?: string;
-  }[];
-}
-
-interface Achievement {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  requiredScore: number;
+  achievements: Achievement[];
 }
 
 // In a real app, these would come from the database
-const ACHIEVEMENTS: Achievement[] = [
+const ACHIEVEMENTS: AchievementMetadata[] = [
   {
-    id: '1',
+    id: 'early_bird',
     title: 'Early Bird',
     description: 'Complete 5 morning challenges',
-    icon: 'sun.max.fill',
+    icon: 'sun.max.fill' as SFSymbols6_0,
     requiredScore: 5
   },
   {
-    id: '2',
+    id: 'challenger',
     title: 'Challenger',
     description: 'Join 10 challenges',
-    icon: 'trophy.fill',
+    icon: 'trophy.fill' as SFSymbols6_0,
     requiredScore: 10
   },
   {
-    id: '3',
+    id: 'consistent',
     title: 'Consistent',
     description: 'Maintain streak for 30 days',
-    icon: 'checkmark.seal.fill',
+    icon: 'checkmark.seal.fill' as SFSymbols6_0,
     requiredScore: 30
   },
   {
-    id: '4',
+    id: 'social',
     title: 'Social',
     description: 'Complete 5 group challenges',
-    icon: 'person.2.fill',
+    icon: 'person.2.fill' as SFSymbols6_0,
     requiredScore: 5
   }
 ];
@@ -91,6 +79,7 @@ export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user, signOut } = useAuth();
+  const firebaseUser = auth().currentUser;
 
   const [stats, setStats] = useState<UserStats>({
     totalChallenges: 0,
@@ -100,7 +89,7 @@ export default function ProfileScreen() {
     successRate: 0,
     achievements: [],
   });
-  const [recentChallenges, setRecentChallenges] = useState<(Challenge | UserChallenge)[]>([]);
+  const [recentChallenges, setRecentChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,10 +106,10 @@ export default function ProfileScreen() {
       if (!userProfile) throw new Error('User not found');
       
       // Get user challenges
-      const userChallenges = await challengeService.getUserChallenges() as unknown as ServiceUserChallenge[];
+      const userChallenges = await challengeService.getUserChallenges();
       
       // Get wallet stats
-      const walletStats = await walletService.getWalletStats();
+      const walletStats = await walletService.getWalletStats(userProfile.id);
       
       // Calculate stats
       const completedChallenges = userChallenges.filter(c => c.status === 'completed').length;
@@ -140,8 +129,8 @@ export default function ProfileScreen() {
         achievements: unlockedAchievements,
       });
       
-      // Get recent challenges - cast to the expected type for the state
-      setRecentChallenges(userChallenges.slice(0, 3) as unknown as (Challenge | UserChallenge)[]);
+      // Get recent challenges
+      setRecentChallenges(userChallenges.slice(0, 3));
     } catch (err) {
       console.error('Error loading user data:', err);
       setError((err as Error).message);
@@ -153,42 +142,45 @@ export default function ProfileScreen() {
 
   const calculateUnlockedAchievements = (
     userProfile: authService.UserProfile, 
-    challenges: ServiceUserChallenge[]
-  ) => {
+    challenges: Challenge[]
+  ): Achievement[] => {
     return ACHIEVEMENTS.map(achievement => {
       let unlocked = false;
-      let unlockedAt: string | undefined = undefined;
+      let progress = 0;
       
-      // This is simplified logic - in a real app, you'd have more sophisticated criteria
       switch (achievement.id) {
-        case '1': // Early Bird
+        case 'early_bird': {
           const morningChallenges = challenges.filter(c => {
             const startHour = new Date(c.startDate).getHours();
             return startHour >= 5 && startHour <= 9;
           }).length;
+          progress = (morningChallenges / achievement.requiredScore) * 100;
           unlocked = morningChallenges >= achievement.requiredScore;
           break;
-        case '2': // Challenger
+        }
+        case 'challenger': {
+          progress = (challenges.length / achievement.requiredScore) * 100;
           unlocked = challenges.length >= achievement.requiredScore;
           break;
-        case '3': // Consistent
-          // This would require streak data in a real app
-          unlocked = (userProfile.stats?.longestStreak || 0) >= achievement.requiredScore;
+        }
+        case 'consistent': {
+          const streak = userProfile.stats?.longestStreak || 0;
+          progress = (streak / achievement.requiredScore) * 100;
+          unlocked = streak >= achievement.requiredScore;
           break;
-        case '4': // Social
-          const groupChallenges = challenges.filter(c => c.isGroupChallenge === true).length;
+        }
+        case 'social': {
+          const groupChallenges = challenges.filter(c => c.type === 'activeMinutes').length;
+          progress = (groupChallenges / achievement.requiredScore) * 100;
           unlocked = groupChallenges >= achievement.requiredScore;
           break;
-      }
-      
-      if (unlocked) {
-        // In a real app, this would be the actual date the achievement was unlocked
-        unlockedAt = new Date().toISOString();
+        }
       }
       
       return {
-        ...achievement,
-        unlockedAt
+        id: achievement.id,
+        earnedAt: unlocked ? new Date().toISOString() : undefined,
+        progress: Math.min(progress, 100)
       };
     });
   };
@@ -244,142 +236,103 @@ export default function ProfileScreen() {
         style={styles.header}
       >
         <Image
-          source={{ uri: 'https://via.placeholder.com/100' }}
+          source={{ uri: firebaseUser?.photoURL || 'https://via.placeholder.com/100' }}
           style={styles.avatar}
         />
-        <ThemedText type="title">
-          {user?.displayName || 'Anonymous'}
-        </ThemedText>
-        <ThemedText style={styles.email}>
-          {user?.email}
-        </ThemedText>
+        <ThemedText type="title">{firebaseUser?.displayName || 'Anonymous'}</ThemedText>
+        <ThemedText style={styles.email}>{firebaseUser?.email}</ThemedText>
+        
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <ThemedText type="defaultSemiBold">{stats.totalTokens}</ThemedText>
+            <ThemedText>Tokens</ThemedText>
+          </View>
+          <View style={styles.statItem}>
+            <ThemedText type="defaultSemiBold">{stats.completedChallenges}</ThemedText>
+            <ThemedText>Completed</ThemedText>
+          </View>
+          <View style={styles.statItem}>
+            <ThemedText type="defaultSemiBold">{Math.round(stats.successRate)}%</ThemedText>
+            <ThemedText>Success Rate</ThemedText>
+          </View>
+        </View>
+        
+        <Button onPress={handleSignOut}>Sign Out</Button>
       </AnimatedThemedView>
 
       <AnimatedThemedView
-        entering={FadeInDown.duration(500).delay(100)}
-        style={styles.statsContainer}
-      >
-        <ThemedView style={styles.statRow}>
-          <ThemedView style={styles.stat}>
-            <IconSymbol name="trophy.fill" size={24} color={colors.tint} />
-            <ThemedText type="defaultSemiBold">
-              {stats.completedChallenges}
-            </ThemedText>
-            <ThemedText style={styles.statLabel}>
-              Completed
-            </ThemedText>
-          </ThemedView>
-
-          <ThemedView style={styles.stat}>
-            <IconSymbol name="flame.fill" size={24} color={colors.tint} />
-            <ThemedText type="defaultSemiBold">
-              {stats.activeChallenges}
-            </ThemedText>
-            <ThemedText style={styles.statLabel}>
-              Active
-            </ThemedText>
-          </ThemedView>
-
-          <ThemedView style={styles.stat}>
-            <IconSymbol name="dollarsign.circle" size={24} color={colors.tint} />
-            <ThemedText type="defaultSemiBold">
-              {stats.totalTokens}
-            </ThemedText>
-            <ThemedText style={styles.statLabel}>
-              Tokens
-            </ThemedText>
-          </ThemedView>
-        </ThemedView>
-
-        <ThemedView style={styles.successRate}>
-          <ThemedView style={styles.successHeader}>
-            <ThemedText type="defaultSemiBold">Success Rate</ThemedText>
-            <ThemedText>{stats.successRate}%</ThemedText>
-          </ThemedView>
-          <ProgressBar progress={stats.successRate} height={8} />
-        </ThemedView>
-      </AnimatedThemedView>
-
-      <AnimatedThemedView
-        entering={FadeInDown.duration(500).delay(200)}
+        entering={FadeInDown.delay(100).duration(500)}
         style={styles.section}
       >
         <ThemedText type="subtitle" style={styles.sectionTitle}>
           Achievements
         </ThemedText>
-        <ThemedView style={styles.achievements}>
-          {stats.achievements.map((achievement, index) => (
-            <ThemedView
-              key={achievement.id}
-              style={[
-                styles.achievement,
-                !achievement.unlockedAt ? styles.achievementLocked : {},
-              ]}
-            >
-              <IconSymbol
-                name={achievement.icon as any}
-                color={achievement.unlockedAt ? colors.tint : colors.textDim}
-              />
-              <ThemedText type="defaultSemiBold" style={styles.achievementTitle}>
-                {achievement.title}
-              </ThemedText>
-              <ThemedText style={styles.achievementDesc}>
-                {achievement.description}
-              </ThemedText>
-              {achievement.unlockedAt && (
-                <ThemedText style={styles.achievementDate}>
-                  Unlocked {new Date(achievement.unlockedAt).toLocaleDateString()}
+        <View style={styles.achievementsGrid}>
+          {ACHIEVEMENTS.map((metadata) => {
+            const achievement = stats.achievements.find(a => a.id === metadata.id);
+            return (
+              <TouchableOpacity
+                key={metadata.id}
+                style={[
+                  styles.achievementCard,
+                  { backgroundColor: colors.background }
+                ]}
+              >
+                <IconSymbol
+                  name={metadata.icon as SFSymbols6_0}
+                  size={32}
+                  color={achievement?.earnedAt ? colors.tint : colors.textDim}
+                />
+                <ThemedText type="defaultSemiBold" style={styles.achievementTitle}>
+                  {metadata.title}
                 </ThemedText>
-              )}
-            </ThemedView>
-          ))}
-        </ThemedView>
+                <ThemedText style={styles.achievementDescription}>
+                  {metadata.description}
+                </ThemedText>
+                <ProgressBar
+                  progress={achievement?.progress || 0}
+                  height={4}
+                />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </AnimatedThemedView>
 
       <AnimatedThemedView
-        entering={FadeInDown.duration(500).delay(300)}
+        entering={FadeInDown.delay(200).duration(500)}
         style={styles.section}
       >
         <ThemedText type="subtitle" style={styles.sectionTitle}>
           Recent Challenges
         </ThemedText>
-        <ThemedView style={styles.recentChallenges}>
-          {recentChallenges.map((challenge, index) => (
+        <View style={styles.challengesList}>
+          {recentChallenges.map((challenge) => (
             <TouchableOpacity
               key={challenge.id}
+              style={[
+                styles.challengeCard,
+                { backgroundColor: colors.background }
+              ]}
               onPress={() => router.push(`/challenge/${challenge.id}`)}
             >
-              <ThemedView style={styles.challengeItem}>
-                <IconSymbol
-                  name={challenge.type === 'steps' ? 'figure.walk' : 'flame.fill'}
-                  size={24}
-                  color={colors.text}
-                />
-                <ThemedView style={styles.challengeInfo}>
-                  <ThemedText type="defaultSemiBold">
-                    {challenge.title}
-                  </ThemedText>
-                  {'progress' in challenge && (
-                    <ProgressBar progress={challenge.progress} height={4} />
-                  )}
-                </ThemedView>
-              </ThemedView>
+              <ThemedText type="defaultSemiBold" style={styles.challengeTitle}>
+                {challenge.title}
+              </ThemedText>
+              <ThemedText style={styles.challengeDescription}>
+                {challenge.description}
+              </ThemedText>
+              <View style={styles.challengeFooter}>
+                <ThemedText style={styles.challengeType}>
+                  {challenge.type.charAt(0).toUpperCase() + challenge.type.slice(1)}
+                </ThemedText>
+                <ThemedText style={styles.challengeDate}>
+                  {new Date(challenge.startDate).toLocaleDateString()}
+                </ThemedText>
+              </View>
             </TouchableOpacity>
           ))}
-        </ThemedView>
-      </AnimatedThemedView>
-
-      <AnimatedThemedView
-        entering={FadeInDown.duration(500).delay(400)}
-        style={styles.footer}
-      >
-        <Button
-          onPress={handleSignOut}
-          variant="secondary"
-          style={styles.signOutButton}
-        >
-          Sign Out
-        </Button>
+        </View>
       </AnimatedThemedView>
     </ScrollView>
   );
@@ -395,90 +348,100 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
+    padding: 16,
     alignItems: 'center',
-    padding: 24,
     gap: 8,
   },
   avatar: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    marginBottom: 8,
   },
   email: {
     opacity: 0.7,
   },
   statsContainer: {
-    padding: 16,
-    gap: 16,
-  },
-  statRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 16,
   },
-  stat: {
+  statItem: {
     alignItems: 'center',
-    gap: 4,
   },
-  statLabel: {
-    fontSize: 12,
-    opacity: 0.7,
-  },
-  successRate: {
-    gap: 8,
-  },
-  successHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  signOutButton: {
+    marginTop: 16,
   },
   section: {
     padding: 16,
   },
   sectionTitle: {
+    fontSize: 20,
     marginBottom: 16,
   },
-  achievements: {
+  achievementsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
   },
-  achievement: {
-    padding: 16,
-    borderRadius: 12,
-    gap: 8,
-  },
-  achievementLocked: {
-    opacity: 0.5,
-  },
-  achievementTitle: {
-    marginTop: 4,
-  },
-  achievementDesc: {
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  achievementDate: {
-    fontSize: 12,
-    opacity: 0.5,
-  },
-  recentChallenges: {
-    gap: 8,
-  },
-  challengeItem: {
-    flexDirection: 'row',
+  achievementCard: {
+    width: '48%',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  achievementTitle: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  achievementDescription: {
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  challengesList: {
     gap: 12,
   },
-  challengeInfo: {
-    flex: 1,
-    gap: 8,
-  },
-  footer: {
+  challengeCard: {
     padding: 16,
-    paddingBottom: 32,
+    borderRadius: 12,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  signOutButton: {
-    width: '100%',
+  challengeTitle: {
+    fontSize: 16,
+  },
+  challengeDescription: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  challengeFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  challengeType: {
+    fontSize: 12,
+    opacity: 0.7,
+  },
+  challengeDate: {
+    fontSize: 12,
+    opacity: 0.7,
   },
 }); 

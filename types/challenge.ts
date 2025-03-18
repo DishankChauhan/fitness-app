@@ -1,13 +1,21 @@
-export type ChallengeType = 'steps' | 'activeMinutes' | 'sleep';
+import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+
+export type ChallengeType = 'steps' | 'activeMinutes' | 'heartRate' | 'sleepHours';
 
 export type ChallengeVisibility = 'public' | 'private' | 'invite_only';
+
+export type ChallengeStatus = 'active' | 'completed' | 'cancelled';
+
+export type ChallengeCategory = 'fitness' | 'wellness' | 'productivity' | 'social' | 'custom';
 
 export interface ChallengeGroup {
   id: string;
   name: string;
   description: string;
   createdBy: string;
-  members: string[];
+  participants: string[];
+  maxParticipants: number;
+  challengeId: string;
   admins: string[];
   visibility: ChallengeVisibility;
   createdAt: string;
@@ -26,7 +34,7 @@ export interface Challenge {
   stake: number;
   prizePool: number;
   participants: string[];
-  status: 'active' | 'completed' | 'cancelled';
+  status: ChallengeStatus;
   visibility: ChallengeVisibility;
   groupId?: string; // Reference to ChallengeGroup if it's a group challenge
   createdBy: string;
@@ -73,10 +81,26 @@ export interface ChallengeMilestone {
   createdAt: string;
 }
 
-export interface UserChallenge extends Challenge {
+export interface CheckInResult {
+  success: boolean;
+  message: string;
   progress: number;
+}
+
+export interface UserChallenge {
+  id: string;
   userId: string;
+  type: ChallengeType;
+  goal: number;
+  progress: number;
   displayName: string;
+  status: ChallengeStatus;
+  startDate: FirebaseFirestoreTypes.Timestamp;
+  endDate: FirebaseFirestoreTypes.Timestamp;
+  lastCheckIn: FirebaseFirestoreTypes.Timestamp | null;
+  stake: number;
+  groupId?: string;
+  isGroupChallenge?: boolean;
   rank?: number;
   isCompleted?: boolean;
 }

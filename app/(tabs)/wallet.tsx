@@ -36,9 +36,12 @@ export default function WalletScreen() {
 
   const loadWalletData = async () => {
     try {
+      if (!user || !user.id) {
+        throw new Error('User is not authenticated');
+      }
       setLoading(true);
-      const stats = await walletService.getWalletStats();
-      const transactionHistory = await walletService.getTransactions();
+      const stats = await walletService.getWalletStats(user.id);
+      const transactionHistory = await walletService.getTransactions({ limit: 10, cursor: '' });
       
       setWalletStats(stats);
       setTransactions(transactionHistory);
