@@ -3,12 +3,16 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { useRouter, useSegments } from 'expo-router';
-
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { verificationService } from '../services/verificationService';
+import { ThemedView } from '../components/ThemedView';
+import { ThemedText } from '../components/ThemedText';
+import { ActivityIndicator } from 'react-native';
+import { Colors } from '../constants/Colors';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -41,19 +45,48 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
+  const [isVerified, setIsVerified] = useState<boolean | null>(null);
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    async function verifyApp() {
+      try {
+        const verified = await verificationService.verifyOwnership();
+        setIsVerified(verified);
+      } catch (e) {
+        console.warn(e);
+        setIsVerified(false);
+      }
     }
-  }, [loaded]);
 
-  if (!loaded) {
-    return null;
+    if (fontsLoaded) {
+      SplashScreen.hideAsync();
+      verifyApp();
+    }
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded || isVerified === null) {
+    return (
+      <ThemedView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
+      </ThemedView>
+    );
+  }
+
+  if (!isVerified) {
+    return (
+      <ThemedView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <ThemedText type="title" style={{ textAlign: 'center', marginBottom: 10 }}>
+          Unauthorized Application
+        </ThemedText>
+        <ThemedText style={{ textAlign: 'center' }}>
+          This appears to be an unauthorized copy of the application. Please use the official version.
+        </ThemedText>
+      </ThemedView>
+    );
   }
 
   return (
@@ -67,7 +100,7 @@ export default function RootLayout() {
           }}
         />
       </ThemeProvider>
-      <StatusBar style="auto" />
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
     </AuthProvider>
   );
 }
