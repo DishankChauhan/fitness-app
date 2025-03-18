@@ -10,7 +10,7 @@ import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/app/hooks/useColorScheme';
 import { useAuth } from '@/app/hooks/useAuth';
-import { Challenge } from '@/types/challenge';
+import { Challenge, UserChallenge } from '@/types/challenge';
 import { challengeService } from '@/services/challengeService';
 import * as walletService from '@/services/walletService';
 import * as authService from '@/services/authService';
@@ -89,7 +89,7 @@ export default function ProfileScreen() {
     successRate: 0,
     achievements: [],
   });
-  const [recentChallenges, setRecentChallenges] = useState<Challenge[]>([]);
+  const [recentChallenges, setRecentChallenges] = useState<UserChallenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +106,7 @@ export default function ProfileScreen() {
       if (!userProfile) throw new Error('User not found');
       
       // Get user challenges
-      const userChallenges = await challengeService.getUserChallenges();
+      const userChallenges = await challengeService.getUserChallenges(userProfile.id);
       
       // Get wallet stats
       const walletStats = await walletService.getWalletStats(userProfile.id);
@@ -142,7 +142,7 @@ export default function ProfileScreen() {
 
   const calculateUnlockedAchievements = (
     userProfile: authService.UserProfile, 
-    challenges: Challenge[]
+    challenges: UserChallenge[]
   ): Achievement[] => {
     return ACHIEVEMENTS.map(achievement => {
       let unlocked = false;
@@ -151,7 +151,7 @@ export default function ProfileScreen() {
       switch (achievement.id) {
         case 'early_bird': {
           const morningChallenges = challenges.filter(c => {
-            const startHour = new Date(c.startDate).getHours();
+            const startHour = c.startDate.toDate().getHours();
             return startHour >= 5 && startHour <= 9;
           }).length;
           progress = (morningChallenges / achievement.requiredScore) * 100;
@@ -170,7 +170,7 @@ export default function ProfileScreen() {
           break;
         }
         case 'social': {
-          const groupChallenges = challenges.filter(c => c.type === 'activeMinutes').length;
+          const groupChallenges = challenges.filter(c => c.isGroupChallenge).length;
           progress = (groupChallenges / achievement.requiredScore) * 100;
           unlocked = groupChallenges >= achievement.requiredScore;
           break;
@@ -317,17 +317,17 @@ export default function ProfileScreen() {
               onPress={() => router.push(`/challenge/${challenge.id}`)}
             >
               <ThemedText type="defaultSemiBold" style={styles.challengeTitle}>
-                {challenge.title}
+                {challenge.displayName}
               </ThemedText>
               <ThemedText style={styles.challengeDescription}>
-                {challenge.description}
+                {challenge.displayName}
               </ThemedText>
               <View style={styles.challengeFooter}>
                 <ThemedText style={styles.challengeType}>
                   {challenge.type.charAt(0).toUpperCase() + challenge.type.slice(1)}
                 </ThemedText>
                 <ThemedText style={styles.challengeDate}>
-                  {new Date(challenge.startDate).toLocaleDateString()}
+                  {challenge.startDate.toDate().toLocaleDateString()}
                 </ThemedText>
               </View>
             </TouchableOpacity>

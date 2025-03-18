@@ -237,7 +237,7 @@ describe('ChallengeService', () => {
         updatedAt: 'mockChallengeUpdatedAt'
       };
 
-      const result = await challengeService.getUserChallenges();
+      const result = await challengeService.getUserChallenges(mockUser.id);
 
       expect(result).toEqual([mockChallenge]);
     });
@@ -247,7 +247,7 @@ describe('ChallengeService', () => {
       (firestore().collection('challenges').where('participants', 'array-contains', 'mockUserId').get as jest.Mock)
         .mockRejectedValue(error);
 
-      await expect(challengeService.getUserChallenges())
+      await expect(challengeService.getUserChallenges('mockUserId'))
         .rejects.toThrow(error);
     });
   });

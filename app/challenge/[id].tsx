@@ -68,8 +68,10 @@ export default function ChallengeScreen() {
     
     try {
       setLoadingParticipants(true);
+      // For UserChallenge, we only have the current user
+      const participantIds = isUserChallenge ? [challenge.userId] : (challenge as Challenge).participants;
       const participantData = await Promise.all(
-        challenge.participants.map(async (userId) => {
+        participantIds.map(async (userId) => {
           const userChallenge = await challengeService.getUserChallenge(challenge.id, userId);
           return {
             userId,
@@ -138,10 +140,16 @@ export default function ChallengeScreen() {
   }
 
   const isUserChallenge = 'progress' in challenge;
-  const daysRemaining = challenge.endDate ? Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
+  const daysRemaining = Math.max(0, Math.ceil(
+    (isUserChallenge 
+      ? challenge.endDate.toDate().getTime() 
+      : new Date(challenge.endDate).getTime()
+    ) - Date.now()) / (1000 * 60 * 60 * 24)
+  );
   const isActive = challenge.status === 'active';
   const canJoin = isActive && !isUserChallenge && (user?.tokens ?? 0) >= challenge.stake;
   const canLeave = isActive && isUserChallenge;
+  const participantCount = isUserChallenge ? 1 : (challenge as Challenge).participants.length;
 
   return (
     <ScrollView style={styles.scrollView}>
@@ -159,14 +167,16 @@ export default function ChallengeScreen() {
             color={colors.text}
           />
           <ThemedText type="title" style={styles.title}>
-            {challenge.title}
+            {isUserChallenge ? challenge.displayName : (challenge as Challenge).title}
           </ThemedText>
         </AnimatedThemedView>
         <AnimatedCard 
           style={styles.descriptionCard}
         >
           <ThemedText type="subtitle">Description</ThemedText>
-          <ThemedText style={styles.description}>{challenge.description}</ThemedText>
+          <ThemedText style={styles.description}>
+            {isUserChallenge ? challenge.displayName : (challenge as Challenge).description}
+          </ThemedText>
         </AnimatedCard>
 
         <AnimatedCard 
@@ -177,7 +187,9 @@ export default function ChallengeScreen() {
           
           <ThemedView style={styles.detailRow}>
             <IconSymbol name="target" size={20} color={colors.text} />
-            <ThemedText>{challenge.target} {challenge.type}</ThemedText>
+            <ThemedText>
+              {isUserChallenge ? challenge.goal : (challenge as Challenge).target} {challenge.type}
+            </ThemedText>
           </ThemedView>
           
           <ThemedView style={styles.detailRow}>
@@ -187,14 +199,24 @@ export default function ChallengeScreen() {
           
           <ThemedView style={styles.detailRow}>
             <IconSymbol name="trophy" size={20} color={colors.text} />
-            <ThemedText>{challenge.prizePool} tokens prize pool</ThemedText>
+            <ThemedText>
+              {isUserChallenge ? challenge.stake : (challenge as Challenge).prizePool} tokens prize pool
+            </ThemedText>
           </ThemedView>
           
           <ThemedView style={styles.detailRow}>
             <IconSymbol name="calendar" size={20} color={colors.text} />
             <ThemedView>
-              <ThemedText>Starts: {formatDate(challenge.startDate)}</ThemedText>
-              <ThemedText>Ends: {formatDate(challenge.endDate)}</ThemedText>
+              <ThemedText>
+                Starts: {isUserChallenge 
+                  ? challenge.startDate.toDate().toLocaleDateString() 
+                  : formatDate(challenge.startDate)}
+              </ThemedText>
+              <ThemedText>
+                Ends: {isUserChallenge 
+                  ? challenge.endDate.toDate().toLocaleDateString() 
+                  : formatDate(challenge.endDate)}
+              </ThemedText>
             </ThemedView>
           </ThemedView>
           
@@ -205,7 +227,7 @@ export default function ChallengeScreen() {
           
           <ThemedView style={styles.detailRow}>
             <IconSymbol name="person.2" size={20} color={colors.text} />
-            <ThemedText>{challenge.participants.length} participants</ThemedText>
+            <ThemedText>{participantCount} participants</ThemedText>
           </ThemedView>
         </AnimatedCard>
 

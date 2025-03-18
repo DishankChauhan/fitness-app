@@ -65,7 +65,7 @@ export default function ChallengesScreen() {
       >
         <View style={styles.challengeHeader}>
           <View style={styles.titleContainer}>
-            <ThemedText type="title">{challenge.title}</ThemedText>
+            <ThemedText type="title">{isUserChallenge ? (challenge as UserChallenge).displayName : (challenge as Challenge).title}</ThemedText>
             {isCompleted && progress >= 100 && (
               <Ionicons name="trophy" size={20} color={Colors.light.success} style={styles.trophyIcon} />
             )}
@@ -73,11 +73,11 @@ export default function ChallengesScreen() {
           {type === 'available' ? (
             <ThemedText style={styles.stakeText}>Stake: {challenge.stake} tokens</ThemedText>
           ) : (
-            <ThemedText style={styles.prizeText}>Prize: {challenge.prizePool} tokens</ThemedText>
+            <ThemedText style={styles.prizeText}>Prize: {isUserChallenge ? (challenge as UserChallenge).stake : (challenge as Challenge).prizePool} tokens</ThemedText>
           )}
         </View>
 
-        <ThemedText style={styles.description}>{challenge.description}</ThemedText>
+        <ThemedText style={styles.description}>{isUserChallenge ? (challenge as UserChallenge).displayName : (challenge as Challenge).description}</ThemedText>
 
         {isUserChallenge && renderChallengeProgress(progress)}
 
@@ -85,13 +85,13 @@ export default function ChallengesScreen() {
           <View style={styles.stat}>
             <Ionicons name="people-outline" size={20} color={Colors.light.tint} />
             <ThemedText style={styles.statText}>
-              {challenge.participants.length} participants
+              {isUserChallenge ? '1' : `${(challenge as Challenge).participants.length}`} participants
             </ThemedText>
           </View>
           <View style={styles.stat}>
             <Ionicons name="time-outline" size={20} color={Colors.light.tint} />
             <ThemedText style={styles.statText}>
-              {isCompleted ? 'Ended' : `Ends ${formatDate(challenge.endDate)}`}
+              {isCompleted ? 'Ended' : `Ends ${formatDate(isUserChallenge ? (challenge as UserChallenge).endDate.toDate().toISOString() : challenge.endDate)}`}
             </ThemedText>
           </View>
           <View style={styles.stat}>
@@ -101,7 +101,7 @@ export default function ChallengesScreen() {
               color={Colors.light.tint} 
             />
             <ThemedText style={styles.statText}>
-              {type === 'available' ? `${challenge.stake} tokens` : `${challenge.prizePool} tokens`}
+              {type === 'available' ? `${challenge.stake} tokens` : `${isUserChallenge ? (challenge as UserChallenge).stake : (challenge as Challenge).prizePool} tokens`}
             </ThemedText>
           </View>
         </View>

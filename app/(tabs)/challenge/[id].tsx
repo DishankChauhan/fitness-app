@@ -49,15 +49,23 @@ export default function ChallengeScreen() {
 
   const getMetricDisplay = () => {
     if (!challenge) return '';
+    const value = isUserChallenge ? (challenge as UserChallenge).goal : (challenge as Challenge).target;
 
     switch (challenge.type) {
       case 'steps':
-        return `${challenge.target.toLocaleString()} Steps`;
+        return `${value.toLocaleString()} Steps`;
       case 'activeMinutes':
-        return `${challenge.target} Active Minutes`;
+        return `${value} Active Minutes`;
       default:
-        return `${challenge.target}`;
+        return `${value}`;
     }
+  };
+
+  const getEndDateString = (challenge: Challenge | UserChallenge): string => {
+    if (isUserChallenge) {
+      return (challenge as UserChallenge).endDate.toDate().toISOString();
+    }
+    return (challenge as Challenge).endDate;
   };
 
   if (challengeError) {
@@ -77,13 +85,15 @@ export default function ChallengeScreen() {
   }
 
   const progress = isUserChallenge ? (challenge as UserChallenge).progress : 0;
-  const daysRemaining = getDaysRemaining(challenge.endDate);
-  const hasEnded = isDateInPast(challenge.endDate);
+  const daysRemaining = getDaysRemaining(getEndDateString(challenge));
+  const hasEnded = isDateInPast(getEndDateString(challenge));
 
   return (
     <ScrollView style={styles.container}>
       <ThemedView style={styles.header}>
-        <ThemedText type="title">{challenge.title}</ThemedText>
+        <ThemedText type="title">
+          {isUserChallenge ? (challenge as UserChallenge).displayName : (challenge as Challenge).title}
+        </ThemedText>
         <View style={styles.statusContainer}>
           {hasEnded ? (
             <View style={[styles.badge, styles.completedBadge]}>
@@ -102,7 +112,9 @@ export default function ChallengeScreen() {
       </ThemedView>
 
       <ThemedView style={styles.section}>
-        <ThemedText style={styles.description}>{challenge.description}</ThemedText>
+        <ThemedText style={styles.description}>
+          {isUserChallenge ? (challenge as UserChallenge).displayName : (challenge as Challenge).description}
+        </ThemedText>
 
         <View style={styles.targetContainer}>
           <ThemedText type="subtitle">Target</ThemedText>
@@ -138,12 +150,16 @@ export default function ChallengeScreen() {
           <View style={styles.stat}>
             <Ionicons name="people-outline" size={24} color={Colors.light.tint} />
             <ThemedText style={styles.statLabel}>Participants</ThemedText>
-            <ThemedText style={styles.statValue}>{challenge.participants.length}</ThemedText>
+            <ThemedText style={styles.statValue}>
+              {isUserChallenge ? 1 : (challenge as Challenge).participants.length}
+            </ThemedText>
           </View>
           <View style={styles.stat}>
             <Ionicons name="trophy-outline" size={24} color={Colors.light.tint} />
             <ThemedText style={styles.statLabel}>Prize Pool</ThemedText>
-            <ThemedText style={styles.statValue}>{challenge.prizePool} tokens</ThemedText>
+            <ThemedText style={styles.statValue}>
+              {isUserChallenge ? (challenge as UserChallenge).stake : (challenge as Challenge).prizePool} tokens
+            </ThemedText>
           </View>
           <View style={styles.stat}>
             <Ionicons name="wallet-outline" size={24} color={Colors.light.tint} />

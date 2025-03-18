@@ -55,7 +55,8 @@ export default function HomeScreen() {
 
   const renderChallenge = ({ item, index }: { item: Challenge | UserChallenge; index: number }) => {
     const isUserChallenge = 'progress' in item;
-    const daysRemaining = item.endDate ? Math.max(0, Math.ceil((new Date(item.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
+    const endDate = isUserChallenge ? (item as UserChallenge).endDate.toDate() : new Date(item.endDate);
+    const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
 
     return (
       <AnimatedCard
@@ -70,18 +71,18 @@ export default function HomeScreen() {
             color={colors.text}
           />
           <ThemedText type="subtitle" style={styles.title}>
-            {item.title}
+            {isUserChallenge ? (item as UserChallenge).displayName : (item as Challenge).title}
           </ThemedText>
         </ThemedView>
 
         <ThemedText style={styles.description} numberOfLines={2}>
-          {item.description}
+          {isUserChallenge ? (item as UserChallenge).displayName : (item as Challenge).description}
         </ThemedText>
 
         <ThemedView style={styles.stats}>
           <ThemedView style={styles.statRow}>
             <IconSymbol name="target" size={16} color={colors.text} />
-            <ThemedText>{item.target} {item.type}</ThemedText>
+            <ThemedText>{isUserChallenge ? (item as UserChallenge).goal : (item as Challenge).target} {item.type}</ThemedText>
           </ThemedView>
 
           <ThemedView style={styles.statRow}>
